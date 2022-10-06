@@ -173,6 +173,7 @@ int main(void)
   /* USER CODE BEGIN 2 */
 	// Init reference timer
 	HAL_TIM_Base_Start(&htim1);
+	// Init uart receive interrupt
 	HAL_UART_Receive_IT (&huart5, Rx_data, 4);
   /* USER CODE END 2 */
 
@@ -183,29 +184,42 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+		// check if motor is enabled and the motor is in running state
 		if(!(GPIOB->IDR &(1<<4)) && (motorRunState == 2)){
+			// check if the pulse has passed
 			if(pulseTrigger == 2){
+				// take 2 pulses and calculate average
 				comparePulse[2] = (comparePulse[0] + comparePulse[1]) / 2;
+				// if average pulse is more the 0
 				if(comparePulse[2] > 0){
+					// calculate average rpm
 					rpmPulse = (((1000000.0 / (float)comparePulse[2]) * 60.0) / (float)MAGNETS_ON_ROTOR);
 				}
+				// reset pulse state
 				pulseTrigger = 0;
 			}
 
+			// if time passed delay of pulse and a pulse has to be fired
 			if((TIM1->CNT >= delayPulse) && (pulseTrigger == 1)){
+				// divide pulsewidth by 4 and pass to timer register
 				TIM3->ARR = widthPulse / 3;
+				// enable one shot timer
 				__HAL_TIM_ENABLE(&htim3);
+				// set new pulse state
 				pulseTrigger = 2;
 			}
 		}
 		
-
+		// if there is no pulse running and timer has passed the data cyclus time
 		if((pulseTrigger == 0) && (TIM1->CNT >= (prevTimerCount + dataCycleTime))){
+			// save new timer value
 			prevTimerCount = TIM1->CNT;
 			
+			// select a bit of data
 			switch(dataCounter){
 				case 0:
 					//Send motor data over uart
+					// battery voltage
 					data1[0]= 0x70;
 					data1[1]= 0x10;
 					data1[2]=(voltageBattery >> 24);
@@ -216,6 +230,7 @@ int main(void)
 					break;
 				case 1:
 					//Send motor data over uart
+					// battery current
 					data1[0]= 0x70;
 					data1[1]= 0x20;
 					data1[2]=(currentBattery >> 24);
@@ -226,6 +241,7 @@ int main(void)
 					break;
 				case 2:
 					//Send motor data over uart
+					// motor rpm
 					data1[0]= 0x70;
 					data1[1]= 0x30;
 					data1[2]=(rpmPulse >> 24);
@@ -236,6 +252,7 @@ int main(void)
 					break;
 				case 3:
 					//Send motor data over uart
+					// calculated pulse width
 					data1[0]= 0x70;
 					data1[1]= 0x40;
 					data1[2]=(widthPulse >> 24);
@@ -246,6 +263,7 @@ int main(void)
 					break;
 				case 4:
 					//Send motor data over uart
+					// calculate pulse delay
 					data1[0]= 0x70;
 					data1[1]= 0x50;
 					data1[2]=(delayPulse >> 24);
@@ -255,88 +273,158 @@ int main(void)
 					HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
 					break;
 			}
+			
+			// increase data counter
 			dataCounter++;
 			
+			// handle counter overflow
 			if(dataCounter >= 5){
 					dataCounter = 0;
 			} 
 		} 
 		
+		// if a uart recieve interrupt has taken place
 		if(dataCommand == 1){
+			// if the uart command was a register write action
+			if(Rx_data[0] == 0x80){
+				switch(Rx_data[1]){
+					case 0x01: // enable bus control
+						
+						break;
+					
+					case 0x02: // enable motor
+						
+						break;
+					
+					case 0x03: // enable pid
+						
+						break;
+					
+					case 0x05: // set rpm
+						
+						break;
+					
+					case 0x40: // set pulse width
+						
+						break;
+					
+					case 0x50: // set delay pulse
+						
+						break;
+					
+					case 0x60: // set pid deadband
+						
+						break;
+					
+					case 0x61: // set pid min bandwidth
+						
+						break;
+					
+					case 0x62: // set pid max bandwidth
+						
+						break;
+					
+					case 0x63: // set pid min tune
+						
+						break;
+					
+					case 0x64: // set pid max tune
+						
+						break;
+				}
+			}
 			
+			// set all databits to 0
+			for(int i = 0; i < 8; i++){
+					Rx_data[i] = 0x00;
+			}
+			
+			// reset the data command flag
+			dataCommand = 0;
 		}
 		
+		// while no pulse is being put out
 		while( pulseTrigger == 0){
+			// start a adc poll
 			HAL_ADC_Start_DMA(&hadc1, (uint32_t*) analogInputs, analogChCounts);
+			
+			// hold program till conversion is complete
 			while(analogConvComplete == 0){
-			if(comparePulse[2] > 0){
-				rpmPulse = (((1000000.0 / (float)comparePulse[2]) * 60.0) / (float)MAGNETS_ON_ROTOR);
+				// calculate a rpm in the mean while
+				if(comparePulse[2] > 0){
+					rpmPulse = (((1000000.0 / (float)comparePulse[2]) * 60.0) / (float)MAGNETS_ON_ROTOR);
+				}
 			}
-			}
+			
+			// reset analog conversion flag
 			analogConvComplete = 0;
 			
-
+			// shift analog input array
 			for(int i = (SHIFT_ARRAY - 1);i >= 0;i--){
 				for(int ii = 0;ii <= 3;ii++){
 					analogInAvg[i][ii] = analogInAvg[(i-1)][ii];
 				}
 			}
-			for(int i = 0;i <= 3;i++){
-				analogInAvg[0][i] = analogInputs[i];
-			}
-						
 			
-			for(int i = (SHIFT_ARRAY - 1);i >= 0;i--){
-				for(int ii = 0;ii <= 3;ii++){
-					analogInAvg[i][ii] = analogInAvg[(i-1)][ii];
-				}
-			}
-			for(int i = 0;i <= 3;i++){
-				analogInAvg[0][i] = analogInputs[i];
-			}
-			
+			// reset voltage average
 			voltageAvgCalc = 0;
 			
+			// add all voltage registers together
 			for(int i = 0; i < SHIFT_ARRAY; i++){
 				voltageAvgCalc += analogInAvg[i][0];
 			}
-						
+							
+			// divide by the registers
 			voltageAvg = voltageAvgCalc / SHIFT_ARRAY;
 			
+			// reset current average
 			currentAvgCalc = 0;
 			
+			// add all current registers together
 			for(int i = 0; i < SHIFT_ARRAY; i++){
 				currentAvgCalc += analogInAvg[i][1];
 			}
-						
+			
+			// divide by the registers		
 			currentAvg = currentAvgCalc / SHIFT_ARRAY;
 			
+			// reset delay average
 			delayAvgCalc = 0;
 			
+			// add all delay registers
 			for(int i = 0; i < SHIFT_ARRAY; i++){
 				delayAvgCalc += analogInAvg[i][2];
 			}
-						
+					
+			// divide by the registers	
 			delayAvg = delayAvgCalc / SHIFT_ARRAY;
 			
+			// reset width average
 			widthAvgCalc = 0;
 			
+			// add all width registers
 			for(int i = 0; i < SHIFT_ARRAY; i++){
 				widthAvgCalc += analogInAvg[i][3];
 			}
-						
+			
+			// divide by the registers				
 			widthAvg = widthAvgCalc / SHIFT_ARRAY;
 			//voltageAvg = (analogInAvg[0][0] + analogInAvg[1][1] + analogInAvg[2][0] + analogInAvg[3][0] + analogInAvg[4][0] + analogInAvg[5][0] + analogInAvg[6][0] + analogInAvg[7][0]) / 8;
 			//currentAvg = (analogInAvg[0][1] + analogInAvg[1][1] + analogInAvg[2][1] + analogInAvg[3][1] + analogInAvg[4][1] + analogInAvg[5][1] + analogInAvg[6][1] + analogInAvg[7][1]) / 8;
 			//delayAvg = (analogInAvg[0][2] + analogInAvg[1][2] + analogInAvg[2][2] + analogInAvg[3][2] + analogInAvg[4][2] + analogInAvg[5][2] + analogInAvg[6][2] + analogInAvg[7][2]) / 8;
 			//widthAvg = (analogInAvg[0][3] + analogInAvg[1][3] + analogInAvg[2][3] + analogInAvg[3][3] + analogInAvg[4][3] + analogInAvg[5][3] + analogInAvg[6][3] + analogInAvg[7][3]) / 8;
 			
-			
+			// calculate battery voltage
 			voltageBattery = (((float)MAX_BATTERY_VOLTAGE / 4095.0) * (float)voltageAvg); // to be verified
+			
+			// calculate battery current
 			currentBattery = (((float)MAX_BATTERY_CURRENT / 4095.0) * (float)currentAvg); // to be verified
+			
+			// calculate delay pulse
 			//delayPulse = (((MAX_PULSE_DELAY / 4095) * analogInputs[2]) * STEP_MULTIPLIER_DELAY);//analogInputs[2]); // to be verified 1000 = 1mS  * multiplier
 			delayPulse =(((float) comparePulse[2] / 1000.0) * ((900.0 / 4095.0) * (float)delayAvg)); // rpm percentage delay
 			
+			// select pulse width mode
 			if(modeWidthPulse == 1){
 				// timed width
 				widthPulse = ((((float)MAX_PULSE_WIDTH / 4095.0) * (float)widthAvg) * (float)multiplierPid); // to be verified 1000 = 1mS  * multiplier
