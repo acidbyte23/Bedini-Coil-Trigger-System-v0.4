@@ -41,7 +41,6 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
-volatile uint32_t totalPulseTime;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -64,7 +63,7 @@ extern uint32_t delayPulse;
 extern uint32_t widthPulse;
 extern int pulseTrigger;
 
-extern uint32_t comparePulse [2];
+extern uint32_t comparePulse[];
 extern uint32_t rpmPulse;
 extern uint32_t rpmSetPulse;
 extern int multiplierPulse;
@@ -216,11 +215,9 @@ void SysTick_Handler(void)
 void EXTI0_IRQHandler(void)
 {
   /* USER CODE BEGIN EXTI0_IRQn 0 */
-	comparePulse[1]= comparePulse[0];
 	comparePulse[0]= TIM1->CNT;
 	TIM1->CNT = 0;
-	//__HAL_TIM_SET_COUNTER(&htim1,0);  // set the counter value a 0
-	totalPulseTime = ((float)(((float)delayPulse + (float)widthPulse) / 100.0) * (float)multiplierPulse);
+	
 	if(!(GPIOB->IDR &(1<<4)) && (motorRunState == 2)){
 		pulseTrigger = 1;
 	}

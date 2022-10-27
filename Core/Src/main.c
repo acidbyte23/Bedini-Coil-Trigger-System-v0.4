@@ -32,6 +32,8 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+//#define UART_DATA // enable uart data comms
+#define RPM_PID // enable uart data comms
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -60,61 +62,108 @@ const uint32_t MAX_PULSE_WIDTH = 5000; // some value making 1 = 1 uS
 const uint32_t STEP_MULTIPLIER_DELAY = 1;
 const uint32_t STEP_MULTIPLIER_WIDTH = 1;
 
+
 // Pulse motor settings
 const int MAGNETS_ON_ROTOR = 10;
 volatile uint32_t rpmSetPulse = 1500;
 volatile int modeWidthPulse = 0;
+volatile int modeDelayPulse = 0;
 
-// PID Settings
-int MIN_BANDWIDTH_PID = 100;
-int MAX_BANDWIDTH_PID = 100;
-int MAX_TUNE_PID = 150;
-int MIN_TUNE_PID = 0;
-int DEADBAND_PID = 0;
-volatile uint32_t	multiplierPid;
-volatile uint32_t rpmDifference[3];
+#ifdef RPM_PID
+	const uint32_t PID_CYCLE_COUNTER = 1000;
+	
+	// PID Settings
+	int MIN_BANDWIDTH_PID = 100;
+	int MAX_BANDWIDTH_PID = 100;
+	int MAX_TUNE_PID = 150;
+	int MIN_TUNE_PID = 0;
+	int DEADBAND_PID = 0;
+	const int MAX_SHIFT_PID = 3;
+	float gainPid = 1.0;
+	volatile uint32_t rpmDifference[MAX_SHIFT_PID];
+	uint32_t rpmDifferenceAvg;
+	uint32_t prevTimerPIDCount;
+#endif
+
+
+uint32_t ANALOG_CYCLE_COUNTER = 1000;
 
 // Analog Inputs
 const int SHIFT_ARRAY = 20;
+const int VOLTAGE_SHIFT = 5;
+const int CURRENT_SHIFT = 5;
+const int DELAY_SHIFT = 20;
+const int WIDTH_SHIFT = 20;
 volatile uint32_t analogInputs[4];
 volatile uint32_t analogInAvg[SHIFT_ARRAY][4];
 const int analogChCounts = sizeof ( analogInputs) / sizeof (analogInputs[0]);
 volatile int analogConvComplete = 0;
-
+uint32_t prevTimerAnalogCount;
 
 // Proram Vars
+volatile uint32_t	multiplierPid;
 volatile uint32_t delayPulse = 0;
 volatile uint32_t widthPulse = 0;
-volatile uint32_t comparePulse[3];
+int MAX_COMPARE_PULSE = 5;
+const int MAXSET_COMPARE_PULSE = 20;
+volatile uint32_t comparePulse[MAXSET_COMPARE_PULSE];
+volatile uint32_t comparePulseAvg;
 volatile uint32_t rpmPulse = 0;
 volatile int multiplierPulse = 100;
-volatile uint32_t voltageAvg;
-volatile uint32_t currentAvg;
-volatile uint32_t delayAvg;
-volatile uint32_t widthAvg;
 volatile uint32_t voltageAvgCalc;
 volatile uint32_t currentAvgCalc;
 volatile uint32_t delayAvgCalc;
 volatile uint32_t widthAvgCalc;
-
+volatile uint32_t voltageAvg;
+volatile uint32_t currentAvg;
+volatile uint32_t delayAvg;
+volatile uint32_t widthAvg;
 volatile uint32_t voltageBattery = 0;
 volatile uint32_t currentBattery = 0;
-
 volatile int pulseTrigger;
 volatile int motorRunState = 0;
 
+#ifdef UART_DATA
+	const uint32_t DATA_CYCLE_COUNTER = 1000;
+	
+	// uart data stuf
+	uint32_t dataCounter;
+	uint8_t data1[8];
+	uint32_t prevTimerDataCount;
+	uint8_t Rx_data[16];
+	uint8_t dataCommand;
 
-// WIFI SSID and PASSWORD
-uint8_t SSID[] = "Free Energy";
-uint8_t PASS[] = "Nternet23!";
+	// WIFI AT COMMANDS 
+	uint8_t SET_MODE_WIFI[] = "AT+CWMODE=1";
+	uint8_t CONNECT_WIFI[] = "AT+CWJAP=\"Free Energy\",\"Internet23!\""; // connect to wifi access point
+	uint8_t OK_WIFI[] = "AT";	// AT command
+	uint8_t IP_ADRES_WIFI[] = "AT+CIPSTA=192.168.2.200";  // set ip adress
+	uint8_t MULTI_CONNECT_WIFI[] = "AT+CIPMUX=1"; // allow multiple connections
+	uint8_t RUN_SERVER_WIFI[] = "AT+CIPSERVER=1,369"; // run tcp server on port 369
+	uint8_t OPEN_PORT_WIFI[] = "AT+CIPSTART=0,\"UDP\",\"192.168.2.5\",369,369,2"; // open the port 369 at 192.168.2.5
+	uint8_t SEND_MSG_8_WIFI[] = "AT+CIPSEND=0,8,\"192.168.2.5\",8100"; // send msg at port 369 to 192.168.2.5 with length of 8
+	uint8_t SEND_MSG_16_WIFI[] = "AT+CIPSEND=0,16,\"192.168.2.5\",8100"; // send msg at port 369 to 192.168.2.5 with length of 16
 
-// uart data stuf
-uint32_t dataCounter;
-uint8_t data1[8];
-uint32_t prevTimerCount;
-uint32_t dataCycleTime = 1000;
-uint8_t Rx_data[8];
-uint8_t dataCommand;
+	// wifi vars
+	int wifiEnable;
+	int enablePulseWifi; 	
+	int analogValueMode;
+	int modeWidthPulseWifi;
+	int modeDelayPulseWifi;
+	uint32_t pulseWidthWifi;
+	uint32_t delayPulseWifi;
+	
+	#ifdef RPM_PID
+		int pidEnabledWifi;
+		uint32_t deadbandPidWifi;
+		uint32_t minBandwidthPidWifi;
+		uint32_t maxBandwidthPidWifi;
+		uint32_t minTunePidWifi;
+		uint32_t maxTunePidWifi;
+		uint32_t rpmPulseWifi;
+	#endif
+	
+#endif
 
 /* USER CODE END PV */
 
@@ -129,6 +178,18 @@ static void MX_TIM3_Init(void);
 static void MX_TIM1_Init(void);
 /* USER CODE BEGIN PFP */
 
+#ifdef RPM_PID
+void runPID(void);
+#endif
+
+void handleMotorRunstate(void);
+void readAnalogConversion(void);
+
+#ifdef UART_DATA
+void uartDataReceive(void);
+void uartDataTransmit(void);
+void initSerialWifi(void);
+#endif
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -141,7 +202,7 @@ static void MX_TIM1_Init(void);
   * @retval int
   */
 int main(void)
-{
+ {
   /* USER CODE BEGIN 1 */
 
   /* USER CODE END 1 */
@@ -174,7 +235,10 @@ int main(void)
 	// Init reference timer
 	HAL_TIM_Base_Start(&htim1);
 	// Init uart receive interrupt
+#ifdef UART_DATA
 	HAL_UART_Receive_IT (&huart5, Rx_data, 4);
+	initSerialWifi();
+#endif
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -189,11 +253,22 @@ int main(void)
 			// check if the pulse has passed
 			if(pulseTrigger == 2){
 				// take 2 pulses and calculate average
-				comparePulse[2] = (comparePulse[0] + comparePulse[1]) / 2;
+				for(int i = (MAX_COMPARE_PULSE - 1); i >= 0; i--){
+					comparePulse[i] = comparePulse[(i-1)];
+				}
+				
+				comparePulseAvg = 0;
+				
+				for(int i = 0; i < (MAX_COMPARE_PULSE); i++){
+					comparePulseAvg += comparePulse[i];
+				}
+				
+				comparePulseAvg = comparePulseAvg / MAX_COMPARE_PULSE;
+				
 				// if average pulse is more the 0
-				if(comparePulse[2] > 0){
+				if(comparePulseAvg > 0){
 					// calculate average rpm
-					rpmPulse = (((1000000.0 / (float)comparePulse[2]) * 60.0) / (float)MAGNETS_ON_ROTOR);
+					rpmPulse = (((1000000.0 / (float)comparePulseAvg) * 60.0) / (float)MAGNETS_ON_ROTOR);
 				}
 				// reset pulse state
 				pulseTrigger = 0;
@@ -209,286 +284,63 @@ int main(void)
 				pulseTrigger = 2;
 			}
 		}
-		
-		// if there is no pulse running and timer has passed the data cyclus time
-		if((pulseTrigger == 0) && (TIM1->CNT >= (prevTimerCount + dataCycleTime))){
-			// save new timer value
-			prevTimerCount = TIM1->CNT;
-			
-			// select a bit of data
-			switch(dataCounter){
-				case 0:
-					//Send motor data over uart
-					// battery voltage
-					data1[0]= 0x70;
-					data1[1]= 0x10;
-					data1[2]=(voltageBattery >> 24);
-					data1[3]=(voltageBattery >> 16);
-					data1[4]=(voltageBattery >> 8);
-					data1[5]=(voltageBattery);
-					HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
-					break;
-				case 1:
-					//Send motor data over uart
-					// battery current
-					data1[0]= 0x70;
-					data1[1]= 0x20;
-					data1[2]=(currentBattery >> 24);
-					data1[3]=(currentBattery >> 16);
-					data1[4]=(currentBattery >> 8);
-					data1[5]=(currentBattery);
-					HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
-					break;
-				case 2:
-					//Send motor data over uart
-					// motor rpm
-					data1[0]= 0x70;
-					data1[1]= 0x30;
-					data1[2]=(rpmPulse >> 24);
-					data1[3]=(rpmPulse >> 16);
-					data1[4]=(rpmPulse >> 8);
-					data1[5]=(rpmPulse);
-					HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
-					break;
-				case 3:
-					//Send motor data over uart
-					// calculated pulse width
-					data1[0]= 0x70;
-					data1[1]= 0x40;
-					data1[2]=(widthPulse >> 24);
-					data1[3]=(widthPulse >> 16);
-					data1[4]=(widthPulse >> 8);
-					data1[5]=(widthPulse);
-					HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
-					break;
-				case 4:
-					//Send motor data over uart
-					// calculate pulse delay
-					data1[0]= 0x70;
-					data1[1]= 0x50;
-					data1[2]=(delayPulse >> 24);
-					data1[3]=(delayPulse >> 16);
-					data1[4]=(delayPulse >> 8);
-					data1[5]=(delayPulse);
-					HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
-					break;
-			}
-			
-			// increase data counter
-			dataCounter++;
-			
-			// handle counter overflow
-			if(dataCounter >= 5){
-					dataCounter = 0;
-			} 
-		} 
-		
-		// if a uart recieve interrupt has taken place
-		if(dataCommand == 1){
-			// if the uart command was a register write action
-			if(Rx_data[0] == 0x80){
-				switch(Rx_data[1]){
-					case 0x01: // enable bus control
-						
-						break;
-					
-					case 0x02: // enable motor
-						
-						break;
-					
-					case 0x03: // enable pid
-						
-						break;
-					
-					case 0x05: // set rpm
-						
-						break;
-					
-					case 0x40: // set pulse width
-						
-						break;
-					
-					case 0x50: // set delay pulse
-						
-						break;
-					
-					case 0x60: // set pid deadband
-						
-						break;
-					
-					case 0x61: // set pid min bandwidth
-						
-						break;
-					
-					case 0x62: // set pid max bandwidth
-						
-						break;
-					
-					case 0x63: // set pid min tune
-						
-						break;
-					
-					case 0x64: // set pid max tune
-						
-						break;
-				}
-			}
-			
-			// set all databits to 0
-			for(int i = 0; i < 8; i++){
-					Rx_data[i] = 0x00;
-			}
-			
-			// reset the data command flag
-			dataCommand = 0;
+
+#ifdef UART_DATA		
+		// Check uart for data
+		if((wifiEnable == 1) && (dataCommand == 1)){
+			uartDataReceive();
 		}
 		
-		// while no pulse is being put out
-		while( pulseTrigger == 0){
-			// start a adc poll
-			HAL_ADC_Start_DMA(&hadc1, (uint32_t*) analogInputs, analogChCounts);
+		// if there is no pulse running and timer has passed the data cyclus time
+		if((wifiEnable == 1) &&(pulseTrigger == 0) && (TIM1->CNT >= (prevTimerDataCount + DATA_CYCLE_COUNTER))){
+			// save new timer value
+			prevTimerDataCount = TIM1->CNT;
 			
-			// hold program till conversion is complete
-			while(analogConvComplete == 0){
-				// calculate a rpm in the mean while
-				if(comparePulse[2] > 0){
-					rpmPulse = (((1000000.0 / (float)comparePulse[2]) * 60.0) / (float)MAGNETS_ON_ROTOR);
-				}
-			}
-			
-			// reset analog conversion flag
-			analogConvComplete = 0;
-			
-			// shift analog input array
-			for(int i = (SHIFT_ARRAY - 1);i >= 0;i--){
-				for(int ii = 0;ii <= 3;ii++){
-					analogInAvg[i][ii] = analogInAvg[(i-1)][ii];
-				}
-			}
-			
-			// reset voltage average
-			voltageAvgCalc = 0;
-			
-			// add all voltage registers together
-			for(int i = 0; i < SHIFT_ARRAY; i++){
-				voltageAvgCalc += analogInAvg[i][0];
-			}
-							
-			// divide by the registers
-			voltageAvg = voltageAvgCalc / SHIFT_ARRAY;
-			
-			// reset current average
-			currentAvgCalc = 0;
-			
-			// add all current registers together
-			for(int i = 0; i < SHIFT_ARRAY; i++){
-				currentAvgCalc += analogInAvg[i][1];
-			}
-			
-			// divide by the registers		
-			currentAvg = currentAvgCalc / SHIFT_ARRAY;
-			
-			// reset delay average
-			delayAvgCalc = 0;
-			
-			// add all delay registers
-			for(int i = 0; i < SHIFT_ARRAY; i++){
-				delayAvgCalc += analogInAvg[i][2];
-			}
-					
-			// divide by the registers	
-			delayAvg = delayAvgCalc / SHIFT_ARRAY;
-			
-			// reset width average
-			widthAvgCalc = 0;
-			
-			// add all width registers
-			for(int i = 0; i < SHIFT_ARRAY; i++){
-				widthAvgCalc += analogInAvg[i][3];
-			}
-			
-			// divide by the registers				
-			widthAvg = widthAvgCalc / SHIFT_ARRAY;
-			//voltageAvg = (analogInAvg[0][0] + analogInAvg[1][1] + analogInAvg[2][0] + analogInAvg[3][0] + analogInAvg[4][0] + analogInAvg[5][0] + analogInAvg[6][0] + analogInAvg[7][0]) / 8;
-			//currentAvg = (analogInAvg[0][1] + analogInAvg[1][1] + analogInAvg[2][1] + analogInAvg[3][1] + analogInAvg[4][1] + analogInAvg[5][1] + analogInAvg[6][1] + analogInAvg[7][1]) / 8;
-			//delayAvg = (analogInAvg[0][2] + analogInAvg[1][2] + analogInAvg[2][2] + analogInAvg[3][2] + analogInAvg[4][2] + analogInAvg[5][2] + analogInAvg[6][2] + analogInAvg[7][2]) / 8;
-			//widthAvg = (analogInAvg[0][3] + analogInAvg[1][3] + analogInAvg[2][3] + analogInAvg[3][3] + analogInAvg[4][3] + analogInAvg[5][3] + analogInAvg[6][3] + analogInAvg[7][3]) / 8;
-			
-			// calculate battery voltage
-			voltageBattery = (((float)MAX_BATTERY_VOLTAGE / 4095.0) * (float)voltageAvg); // to be verified
-			
-			// calculate battery current
-			currentBattery = (((float)MAX_BATTERY_CURRENT / 4095.0) * (float)currentAvg); // to be verified
-			
-			// calculate delay pulse
-			//delayPulse = (((MAX_PULSE_DELAY / 4095) * analogInputs[2]) * STEP_MULTIPLIER_DELAY);//analogInputs[2]); // to be verified 1000 = 1mS  * multiplier
-			delayPulse =(((float) comparePulse[2] / 1000.0) * ((900.0 / 4095.0) * (float)delayAvg)); // rpm percentage delay
-			
-			// select pulse width mode
-			if(modeWidthPulse == 1){
-				// timed width
-				widthPulse = ((((float)MAX_PULSE_WIDTH / 4095.0) * (float)widthAvg) * (float)multiplierPid); // to be verified 1000 = 1mS  * multiplier
-			}
-			else{
-				// duty cycle
-				widthPulse = (((float)comparePulse[2] / 10000.0) * ((5000.0 / 4095.0) * (((float)widthAvg / 100.0) * multiplierPid)));//(float) analogInputs[3])); // 0-50% duty cycle
-			}
-			//comparePulse = 0;
-			
+			uartDataTransmit();
+		
+		}
 
+		if((prevTimerDataCount > (comparePulse[0] - DATA_CYCLE_COUNTER)) || (prevTimerDataCount > (65534 - DATA_CYCLE_COUNTER))){
+			prevTimerDataCount = 0;
+		}
+#endif
+			
+		// read analog, do pid, handle motor state ever x cyclus time
+		if( /*pulseTrigger == 0 &&*/ (TIM1->CNT >= (prevTimerAnalogCount + ANALOG_CYCLE_COUNTER))){
+			// set new cycle time
+			prevTimerAnalogCount = TIM1->CNT;
+			
+			// Handle Analog Values
+			readAnalogConversion();
+			
+			// Handle motor runstate
+			handleMotorRunstate();
+
+		}
+		
+		if((prevTimerAnalogCount > (comparePulse[0] - ANALOG_CYCLE_COUNTER)) || (prevTimerAnalogCount > (65534 - ANALOG_CYCLE_COUNTER))){
+			prevTimerAnalogCount = 0;
+		}
+		
+#ifdef RPM_PID
+		if(TIM1->CNT >= (prevTimerPIDCount + PID_CYCLE_COUNTER)){
+			prevTimerPIDCount = TIM1->CNT;
+			
 			// PID
 			if(!(GPIOB->IDR &(1<<2))){
-				rpmDifference[1] = rpmDifference[0];
-				rpmDifference[2] = (rpmDifference[0] + rpmDifference[1]) / 2;
-				if(rpmPulse < (rpmSetPulse - MIN_BANDWIDTH_PID)){
-					multiplierPid = MAX_TUNE_PID;
-					rpmDifference[0] = rpmSetPulse - rpmPulse;
-				}
-				else if(rpmPulse > (rpmSetPulse + MAX_BANDWIDTH_PID)){
-					multiplierPid = MIN_TUNE_PID;
-					rpmDifference[0] = rpmPulse - rpmSetPulse;
-				}
-				else if((rpmPulse > (rpmSetPulse - MIN_BANDWIDTH_PID)) && (rpmPulse < (rpmSetPulse - DEADBAND_PID))){
-					rpmDifference[0] = rpmSetPulse - rpmPulse;
-					multiplierPid = 100 + rpmDifference[2]	;
-					
-					if(multiplierPid > MAX_TUNE_PID){
-						multiplierPid = MAX_TUNE_PID;
-					}
-				}
-				else if((rpmPulse < (rpmSetPulse + MAX_BANDWIDTH_PID)) && (rpmPulse > (rpmSetPulse + DEADBAND_PID))){
-					rpmDifference[0] = rpmPulse - rpmSetPulse;
-					multiplierPid = 100 - rpmDifference[2];
-					
-					if(multiplierPid > MAX_TUNE_PID){
-						multiplierPid = MIN_TUNE_PID;
-					}
-				}
+				runPID();
 			}
 			else{
 				multiplierPid = 150;
 			}
-			
-			
-			if(!(GPIOB->IDR &(1<<4)) && (motorRunState == 0)){
-				motorRunState = 1;
-			}
-			else if(!(GPIOB->IDR &(1<<4)) && (motorRunState == 1)){
-				TIM3->ARR = 650000;
-				__HAL_TIM_ENABLE(&htim3);
-				
-				
-				comparePulse[2] = (comparePulse[0] + comparePulse[1]) / 2;
-				if(comparePulse[2] > 0){
-					rpmPulse = (((1000000.0 / (float)comparePulse[2]) * 60.0) / (float)MAGNETS_ON_ROTOR);
-				}
-			}
-			
-			else if(!(GPIOB->IDR &(1<<4)) && (motorRunState == 2)){}
-			else{
-				motorRunState = 0;
-			}
 		}
+		
+		if((prevTimerPIDCount > (comparePulse[0] - PID_CYCLE_COUNTER)) || (prevTimerPIDCount > (65534 - PID_CYCLE_COUNTER))){
+			prevTimerPIDCount = 0;
+		}
+#else
+		multiplierPid = 150;
+#endif
 	}
   /* USER CODE END 3 */
 }
@@ -666,7 +518,7 @@ static void MX_ADC2_Init(void)
 
   /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
   */
-  sConfig.Channel = ADC_CHANNEL_10;
+  sConfig.Channel = ADC_CHANNEL_11;
   sConfig.Rank = 1;
   sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
   if (HAL_ADC_ConfigChannel(&hadc2, &sConfig) != HAL_OK)
@@ -802,6 +654,7 @@ static void MX_UART5_Init(void)
 
   /* USER CODE BEGIN UART5_Init 0 */
 
+#ifdef UART_DATA
   /* USER CODE END UART5_Init 0 */
 
   /* USER CODE BEGIN UART5_Init 1 */
@@ -820,7 +673,11 @@ static void MX_UART5_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN UART5_Init 2 */
-
+	
+//#ifdef UART_DATA
+	// Connect to the wifi network
+	initSerialWifi();
+#endif
   /* USER CODE END UART5_Init 2 */
 
 }
@@ -879,12 +736,485 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 	analogConvComplete = 1;
 }
 
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) 
-{
-  HAL_UART_Receive_IT(&huart5, Rx_data, 4); 
-	dataCommand = 1;
+#ifdef UART_DATA
+	void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) 
+	{
+		HAL_UART_Receive_IT(&huart5, Rx_data, 4); 
+		dataCommand = 1;
+	}
+
+	void uartDataReceive(){
+		// if the uart command was a register write action
+		if(Rx_data[0] == 0x80){
+			switch(Rx_data[1]){
+				case 0x01: // enable bus control
+					analogValueMode = Rx_data[2]; // 0=analog 1=busvalue
+					break;
+				
+				case 0x02: // enable motor
+					enablePulseWifi = Rx_data[2];
+					break;
+		
+	#ifdef RPM_PID		
+				case 0x03: // enable pid
+					pidEnabledWifi = Rx_data[2]; // 0= disabled 1=standard coded pid values 2=bus controlled pid values
+					break;
+				case 0x05: // set rpm
+					rpmPulseWifi = (Rx_data[2] << 24) | (Rx_data[3] << 16) | (Rx_data[4] << 8) | (Rx_data[5]);
+					break;
+	#endif		
+			
+				case 0x06: // set mode width pulse
+					modeWidthPulseWifi = Rx_data[2];
+					break;
+			
+				case 0x07: // set mode delay pulse
+					modeDelayPulseWifi = Rx_data[2];
+					break;
+		
+				case 0x40: // set pulse width
+					pulseWidthWifi = (Rx_data[2] << 24) | (Rx_data[3] << 16) | (Rx_data[4] << 8) | (Rx_data[5]);
+					break;
+				
+				case 0x50: // set delay pulse
+					delayPulseWifi = (Rx_data[2] << 24) | (Rx_data[3] << 16) | (Rx_data[4] << 8) | (Rx_data[5]);
+					break;
+	#ifdef RPM_PID				
+				case 0x60: // set pid deadband
+					deadbandPidWifi = (Rx_data[2] << 24) | (Rx_data[3] << 16) | (Rx_data[4] << 8) | (Rx_data[5]);
+					break;
+				
+				case 0x61: // set pid min bandwidth
+					minBandwidthPidWifi = (Rx_data[2] << 24) | (Rx_data[3] << 16) | (Rx_data[4] << 8) | (Rx_data[5]);
+					break;
+				
+				case 0x62: // set pid max bandwidth
+					maxBandwidthPidWifi = (Rx_data[2] << 24) | (Rx_data[3] << 16) | (Rx_data[4] << 8) | (Rx_data[5]);
+					break;
+				
+				case 0x63: // set pid min tune
+					minTunePidWifi = (Rx_data[2] << 24) | (Rx_data[3] << 16) | (Rx_data[4] << 8) | (Rx_data[5]);
+					break;
+				
+				case 0x64: // set pid max tune
+					maxTunePidWifi = (Rx_data[2] << 24) | (Rx_data[3] << 16) | (Rx_data[4] << 8) | (Rx_data[5]);
+					break;
+		#endif
+			}
+		}
+			
+		// set all databits to 0
+		for(int i = 0; i < 8; i++){
+				Rx_data[i] = 0x00;
+		}
+		
+		// reset the data command flag
+		dataCommand = 0;
+	}
+
+	void uartDataTransmit(){
+		// select a bit of data
+		switch(dataCounter){
+			case 0:
+				//Send motor data over uart
+				// battery voltage
+				data1[0]= 0x70;
+				data1[1]= 0x10;
+				data1[2]=(voltageBattery >> 24);
+				data1[3]=(voltageBattery >> 16);
+				data1[4]=(voltageBattery >> 8);
+				data1[5]=(voltageBattery);
+				HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
+				break;
+			case 1:
+				//Send motor data over uart
+				// battery current
+				data1[0]= 0x70;
+				data1[1]= 0x20;
+				data1[2]=(currentBattery >> 24);
+				data1[3]=(currentBattery >> 16);
+				data1[4]=(currentBattery >> 8);
+				data1[5]=(currentBattery);
+				HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
+				break;
+			case 2:
+				//Send motor data over uart
+				// motor rpm
+				data1[0]= 0x70;
+				data1[1]= 0x30;
+				data1[2]=(rpmPulse >> 24);
+				data1[3]=(rpmPulse >> 16);
+				data1[4]=(rpmPulse >> 8);
+				data1[5]=(rpmPulse);
+				HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
+				break;
+			case 3:
+				//Send motor data over uart
+				// calculated pulse width
+				data1[0]= 0x70;
+				data1[1]= 0x40;
+				data1[2]=(widthPulse >> 24);
+				data1[3]=(widthPulse >> 16);
+				data1[4]=(widthPulse >> 8);
+				data1[5]=(widthPulse);
+				HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
+				break;
+			case 4:
+				//Send motor data over uart
+				// calculate pulse delay
+				data1[0]= 0x70;
+				data1[1]= 0x50;
+				data1[2]=(delayPulse >> 24);
+				data1[3]=(delayPulse >> 16);
+				data1[4]=(delayPulse >> 8);
+				data1[5]=(delayPulse);
+				HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
+				break;
+		}
+			
+		// increase data counter
+		dataCounter++;
+			
+		// handle counter overflow
+		if(dataCounter >= 5){
+			dataCounter = 0;
+		} 
+	}
+#endif
+
+	
+#ifdef RPM_PID
+	void runPID(){
+			for(int i = (MAX_SHIFT_PID - 1); i >= 0; i--){
+				rpmDifference[i] = rpmDifference[(i - 1)];
+			}
+				
+			rpmDifferenceAvg = 0;
+				
+			for(int i = 0; i <  (MAX_SHIFT_PID); i++){
+				rpmDifferenceAvg += rpmDifference[i];
+			}
+				
+			rpmDifferenceAvg = (float)rpmDifferenceAvg  / (float)MAX_SHIFT_PID;
+				
+			if(rpmPulse < (rpmSetPulse - MIN_BANDWIDTH_PID)){
+				rpmDifference[0] = rpmSetPulse - rpmPulse;
+			}
+			else if(rpmPulse > (rpmSetPulse + MAX_BANDWIDTH_PID)){
+				multiplierPid = MIN_TUNE_PID;
+				rpmDifference[0] = rpmPulse - rpmSetPulse;
+			}
+			else if((rpmPulse > (rpmSetPulse - MIN_BANDWIDTH_PID)) && (rpmPulse < (rpmSetPulse - DEADBAND_PID))){
+				rpmDifference[0] = rpmSetPulse - rpmPulse;
+				multiplierPid = (100.0 + (float)rpmDifferenceAvg) * gainPid;
+					
+				if(multiplierPid > MAX_TUNE_PID){
+					multiplierPid = MAX_TUNE_PID;
+				}
+			}
+			else if((rpmPulse < (rpmSetPulse + MAX_BANDWIDTH_PID)) && (rpmPulse > (rpmSetPulse + DEADBAND_PID))){
+				rpmDifference[0] = rpmPulse - rpmSetPulse;
+				multiplierPid = (100.0 - (float)rpmDifferenceAvg) / gainPid;
+				
+			if(multiplierPid > MAX_TUNE_PID){
+				multiplierPid = MIN_TUNE_PID;
+			}
+		}
+	}
+#endif
+	
+void handleMotorRunstate(){
+	if(!(GPIOB->IDR &(1<<4)) && (motorRunState == 0)){
+		motorRunState = 1;
+	}
+	else if(!(GPIOB->IDR &(1<<4)) && (motorRunState == 1)){
+		TIM3->ARR = 650000;
+		__HAL_TIM_ENABLE(&htim3);
+			
+		for(int i = (MAX_COMPARE_PULSE - 1); i >= 0; i--){
+			comparePulse[i] = comparePulse[(i-1)];
+		}
+			
+		comparePulseAvg = 0;
+				
+		for(int i = 0; i < (MAX_COMPARE_PULSE); i++){
+			comparePulseAvg += comparePulse[i];
+		}
+				
+		comparePulseAvg = (float)comparePulseAvg / (float)MAX_COMPARE_PULSE;
+				
+		if(comparePulseAvg > 0){
+			rpmPulse = (((1000000.0 / (float)comparePulse[0]) * 60.0) / (float)MAGNETS_ON_ROTOR);
+		}
+	}
+	else if(!(GPIOB->IDR &(1<<4)) && (motorRunState == 2)){
+		for(int i = (MAX_COMPARE_PULSE - 1); i >= 0; i--){
+			comparePulse[i] = comparePulse[(i-1)];
+		}
+			
+		comparePulseAvg = 0;
+				
+		for(int i = 0; i < (MAX_COMPARE_PULSE); i++){
+			comparePulseAvg += comparePulse[i];
+		}
+				
+		comparePulseAvg = (float)comparePulseAvg / (float)MAX_COMPARE_PULSE;
+				
+		if(comparePulseAvg > 0){
+			rpmPulse = (((1000000.0 / (float)comparePulse[0]) * 60.0) / (float)MAGNETS_ON_ROTOR);
+		}
+	}
+	else{
+		motorRunState = 0;
+	}
 }
 
+void readAnalogConversion(){
+	// start a adc poll
+	HAL_ADC_Start_DMA(&hadc1, (uint32_t*) analogInputs, analogChCounts);
+			
+	// hold program till conversion is complete
+	while(analogConvComplete == 0){			}
+			
+	// reset analog conversion flag
+	analogConvComplete = 0;
+			
+	analogInAvg[0][0] = analogInputs[0];
+	analogInAvg[0][1] = analogInputs[1];
+	analogInAvg[0][2] = analogInputs[2];
+	analogInAvg[0][3] = analogInputs[3];
+	
+	// shift analog input array
+	for(int i = (SHIFT_ARRAY - 1);i >= 0;i--){
+		for(int ii = 0;ii <= 3;ii++){
+			analogInAvg[i][ii] = analogInAvg[(i-1)][ii];
+		}
+	}
+			
+	// reset voltage average
+	voltageAvgCalc = 0;
+			
+	// add all voltage registers together
+	for(int i = 0; i < (VOLTAGE_SHIFT); i++){
+		voltageAvgCalc += analogInAvg[i][0];
+	}
+							
+	// divide by the registers
+	voltageAvg = voltageAvgCalc / VOLTAGE_SHIFT;
+			
+	// reset current average
+	currentAvgCalc = 0;
+			
+	// add all current registers together
+	for(int i = 0; i < (CURRENT_SHIFT); i++){
+		currentAvgCalc += analogInAvg[i][1];
+	}
+			
+	// divide by the registers		
+	currentAvg = currentAvgCalc / CURRENT_SHIFT;
+			
+	// reset delay average
+	delayAvgCalc = 0;
+			
+	// add all delay registers
+	for(int i = 0; i < (DELAY_SHIFT); i++){
+		delayAvgCalc += analogInAvg[i][2];
+	}
+					
+	// divide by the registers	
+	delayAvg = delayAvgCalc / DELAY_SHIFT;
+			
+	// reset width average
+	widthAvgCalc = 0;
+			
+	// add all width registers
+	for(int i = 0; i < (WIDTH_SHIFT); i++){
+		widthAvgCalc += analogInAvg[i][3];
+	}
+			
+	// divide by the registers				
+	widthAvg = widthAvgCalc / WIDTH_SHIFT;
+		
+	// calculate battery voltage
+	if (voltageAvg > 0){
+		voltageBattery = (((float)MAX_BATTERY_VOLTAGE / 4095.0) * (float)voltageAvg); // to be verified
+	}
+	else{
+		voltageBattery = 0;
+	}
+			
+	// calculate battery current
+	if (currentAvg > 0){
+		currentBattery = (((float)MAX_BATTERY_CURRENT / 4095.0) * (float)currentAvg); // to be verified
+	}
+	else{
+		currentBattery = 0;
+	}
+			
+	// calculate delay pulse
+		// select pulse delay mode
+	if(modeDelayPulse == 1){
+		delayPulse = ((((float)MAX_PULSE_DELAY / 4095.0) * (float)analogInputs[2]) * (float)STEP_MULTIPLIER_DELAY);//analogInputs[2]); // to be verified 1000 = 1mS  * multiplier
+	}
+	else{
+		delayPulse =(((float) comparePulseAvg / 1000.0) * ((900.0 / 4095.0) * (float)delayAvg)); // rpm percentage delay
+	}
+		
+	// select pulse width mode
+	if(modeWidthPulse == 1){
+		// timed width
+		widthPulse = ((((float)MAX_PULSE_WIDTH / 4095.0) * (float)widthAvg) * (float)multiplierPid); // to be verified 1000 = 1mS  * multiplier
+	}
+	else{
+		// duty cycle
+		widthPulse = (((float)comparePulseAvg / 10000.0) * ((5000.0 / 4095.0) * (((float)widthAvg / 100.0) * (float)multiplierPid)));//(float) analogInputs[3])); // 0-50% duty cycle
+	}
+}
+
+#ifdef UART_DATA
+	void initSerialWifi(){
+		HAL_Delay(500);
+	
+		// Check if wifi module responses
+		HAL_UART_Transmit(&huart5,OK_WIFI,sizeof(OK_WIFI),10);
+		TIM1->CNT = 0;
+		while(dataCommand == 0){
+			if(TIM1->CNT > 65000){
+				goto bailout;
+			}
+		}
+	
+		// enable wifi is response is "OK"
+		if((Rx_data[0] == 0x4F) && (Rx_data[1] == 0x4B)){
+			wifiEnable = 1;
+		}
+		else{
+			wifiEnable = 0;
+		}
+		// set all databits to 0
+		for(int i = 0; i < 8; i++){
+				Rx_data[i] = 0x00;
+		}
+	
+		HAL_Delay(100);
+	
+		// if wifi is enabled
+		if(wifiEnable == 1){
+		
+			// set chip mode to station/ap
+			HAL_UART_Transmit(&huart5,SET_MODE_WIFI,sizeof(SET_MODE_WIFI),10);
+			TIM1->CNT = 0;
+			while(dataCommand == 0){
+				if(TIM1->CNT > 65000){
+					goto bailout;
+				}
+			}
+			
+			// check message to be "OK"
+			if((Rx_data[0] == 0x4F) && (Rx_data[1] == 0x4B)){
+				// wifi mode is set
+			}
+			else{
+				goto bailout;
+			}
+			// set all databits to 0
+			for(int i = 0; i < 8; i++){
+					Rx_data[i] = 0x00;
+			}
+			HAL_Delay(100);
+		
+			// connect to access point
+			HAL_UART_Transmit(&huart5,CONNECT_WIFI,sizeof(CONNECT_WIFI),10);
+			TIM1->CNT = 0;
+			while(dataCommand == 0){
+				if(TIM1->CNT > 65000){
+					goto bailout;
+				}
+			}
+			// check message to be "OK"
+			if((Rx_data[0] == 0x4F) && (Rx_data[1] == 0x4B)){
+				// wifi is connected
+			}
+			else{
+				goto bailout;
+			}	
+			// set all databits to 0
+			for(int i = 0; i < 8; i++){
+					Rx_data[i] = 0x00;
+			}
+			HAL_Delay(100);
+		
+			// set ip adress
+			HAL_UART_Transmit(&huart5, IP_ADRES_WIFI, sizeof(IP_ADRES_WIFI), 10);
+			TIM1->CNT = 0;
+			while(dataCommand == 0){
+				if(TIM1->CNT > 65000){
+					goto bailout;
+				}
+			}
+			// check message to be "OK"
+			if((Rx_data[0] == 0x4F) && (Rx_data[1] == 0x4B)){
+				// ip adress is set
+			}
+			else{
+				goto bailout;
+			}
+			// set all databits to 0
+			for(int i = 0; i < 8; i++){
+					Rx_data[i] = 0x00;
+			}
+			HAL_Delay(100);
+			
+			// set multiple connections mode
+			HAL_UART_Transmit(&huart5, MULTI_CONNECT_WIFI, sizeof(MULTI_CONNECT_WIFI), 10);
+			TIM1->CNT = 0;
+			while(dataCommand == 0){
+				if(TIM1->CNT > 65000){
+					goto bailout;
+				}
+			}
+			// check message to be "OK"
+			if((Rx_data[0] == 0x4F) && (Rx_data[1] == 0x4B)){
+				// Multi connect is set
+			}
+			else{
+				goto bailout;
+			}
+			// set all databits to 0
+			for(int i = 0; i < 8; i++){
+					Rx_data[i] = 0x00;
+			}
+			HAL_Delay(100);
+			
+			// start a tcp server at port x
+			HAL_UART_Transmit(&huart5, RUN_SERVER_WIFI, sizeof(RUN_SERVER_WIFI), 10);
+			TIM1->CNT = 0;
+			while(dataCommand == 0){
+				if(TIM1->CNT > 65000){
+					goto bailout;
+				}
+			}
+			
+			// check message to be "OK"
+			if((Rx_data[0] == 0x4F) && (Rx_data[1] == 0x4B)){
+				//Server is running
+			}	
+			else{
+				goto bailout;
+			}
+			// set all databits to 0
+			for(int i = 0; i < 8; i++){
+					Rx_data[i] = 0x00;
+			}
+			HAL_Delay(100);
+		
+		
+		}
+	bailout:
+			HAL_Delay(100);
+	}
+
+#endif
 /* USER CODE END 4 */
 
 /**
