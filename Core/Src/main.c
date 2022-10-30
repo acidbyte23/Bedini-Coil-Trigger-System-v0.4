@@ -33,7 +33,10 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 //#define UART_DATA // enable uart data comms
-#define RPM_PID // enable uart data comms
+//#define WIFI_UART_DATA // enable uart over wifi
+//#define BLUE_UART_DATA // enable uart over bluetooth
+//#define RPM_PID // enable DIY PID
+#define REAL_RPM_PID // enable REAL PID
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -69,7 +72,7 @@ volatile uint32_t rpmSetPulse = 1500;
 volatile int modeWidthPulse = 0;
 volatile int modeDelayPulse = 0;
 
-#ifdef RPM_PID
+#if defined(RPM_PID) && !defined(REAL_RPM_PID)
 	const uint32_t PID_CYCLE_COUNTER = 1000;
 	
 	// PID Settings
@@ -83,6 +86,22 @@ volatile int modeDelayPulse = 0;
 	volatile uint32_t rpmDifference[MAX_SHIFT_PID];
 	uint32_t rpmDifferenceAvg;
 	uint32_t prevTimerPIDCount;
+#elif defined(REAL_RPM_PID) && !defined(RPM_PID)
+	
+	//PID constants
+	double kp = 2;
+	double ki = 5;
+	double kd = 1;
+ 
+	float error;
+	float lastError;
+	float cumError, rateError;
+	
+	int PID_MIN = 1;
+	int PID_MAX = 150;
+#elif !defined(RPM_PID) && !defined(REAL_RPM_PID)
+#else
+    #error "User can only select 1 PID configuration"
 #endif
 
 
@@ -122,8 +141,41 @@ volatile uint32_t voltageBattery = 0;
 volatile uint32_t currentBattery = 0;
 volatile int pulseTrigger;
 volatile int motorRunState = 0;
+volatile uint32_t comparePulseAvgTemp;
+volatile uint32_t totalPulseTime;
 
-#ifdef UART_DATA
+#if defined(UART_DATA) && !defined(WIFI_UART_DATA) && !defined(BLUE_UART_DATA)
+	const uint32_t DATA_CYCLE_COUNTER = 1000;
+	
+	// uart data stuf
+	uint32_t dataCounter;
+	uint8_t data1[8];
+	uint32_t prevTimerDataCount;
+	uint8_t Rx_data[16];
+	uint8_t dataCommand;
+
+	// Serial vars
+	int SerialEnable;
+	int enablePulseSerial; 	
+	int analogValueMode;
+	int modeWidthPulseSerial;
+	int modeDelayPulseSerial;
+	uint32_t pulseWidthSerial;
+	uint32_t delayPulseSerial;
+	
+	#if defined(RPM_PID)
+		int pidEnabledSerial;
+		uint32_t deadbandPidSerial;
+		uint32_t minBandwidthPidSerial;
+		uint32_t maxBandwidthPidSerial;
+		uint32_t minTunePidSerial;
+		uint32_t maxTunePidSerial;
+		uint32_t rpmPulseSerial;
+	#elif defined(REAL_RPM_PID)   
+		//TODO
+	#endif
+	
+#elif defined(WIFI_UART_DATA) && !defined(UART_DATA) && !defined(BLUE_UART_DATA)
 	const uint32_t DATA_CYCLE_COUNTER = 1000;
 	
 	// uart data stuf
@@ -153,7 +205,7 @@ volatile int motorRunState = 0;
 	uint32_t pulseWidthWifi;
 	uint32_t delayPulseWifi;
 	
-	#ifdef RPM_PID
+	#if defined(RPM_PID)
 		int pidEnabledWifi;
 		uint32_t deadbandPidWifi;
 		uint32_t minBandwidthPidWifi;
@@ -161,8 +213,14 @@ volatile int motorRunState = 0;
 		uint32_t minTunePidWifi;
 		uint32_t maxTunePidWifi;
 		uint32_t rpmPulseWifi;
+	#elif defined(REAL_RPM_PID)  
+		//TODO 
 	#endif
 	
+#elif defined(BLUE_UART_DATA) && !defined(UART_DATA) && !defined(WIFI_UART_DATA)
+#elif !defined(UART_DATA) && !defined(WIFI_UART_DATA) && !defined(BLUE_UART_DATA)
+#else
+	#error "User can only select 1 UART configuration"
 #endif
 
 /* USER CODE END PV */
@@ -178,17 +236,28 @@ static void MX_TIM3_Init(void);
 static void MX_TIM1_Init(void);
 /* USER CODE BEGIN PFP */
 
-#ifdef RPM_PID
-void runPID(void);
+#if defined(RPM_PID)
+	void runPID(void);
+#elif defined(REAL_RPM_PID)   
+	void runPID(void);
 #endif
 
 void handleMotorRunstate(void);
 void readAnalogConversion(void);
-
-#ifdef UART_DATA
+#if defined(UART_DATA) || defined(WIFI_UART_DATA) || defined(BLUE_UART_DATA)
+	void readBusConversion(void);
+#endif
+#if defined(UART_DATA)
+void uartDataReceive(void);
+void uartDataTransmit(void);
+#elif defined(WIFI_UART_DATA)
 void uartDataReceive(void);
 void uartDataTransmit(void);
 void initSerialWifi(void);
+#elif defined(BLUE_UART_DATA)
+void uartDataReceive(void);
+void uartDataTransmit(void);
+void initSerialBLuetooth(void);
 #endif
 /* USER CODE END PFP */
 
@@ -235,9 +304,14 @@ int main(void)
 	// Init reference timer
 	HAL_TIM_Base_Start(&htim1);
 	// Init uart receive interrupt
-#ifdef UART_DATA
+#if defined(UART_DATA)
+	HAL_UART_Receive_IT (&huart5, Rx_data, 4);
+#elif defined(WIFI_UART_DATA)
 	HAL_UART_Receive_IT (&huart5, Rx_data, 4);
 	initSerialWifi();
+#elif defined(BLUE_UART_DATA)
+	HAL_UART_Receive_IT (&huart5, Rx_data, 4);
+		initSerialBluetooth();
 #endif
   /* USER CODE END 2 */
 
@@ -256,20 +330,32 @@ int main(void)
 				for(int i = (MAX_COMPARE_PULSE - 1); i >= 0; i--){
 					comparePulse[i] = comparePulse[(i-1)];
 				}
+				comparePulse[0] = totalPulseTime;
 				
-				comparePulseAvg = 0;
+				comparePulseAvgTemp = 0;
 				
 				for(int i = 0; i < (MAX_COMPARE_PULSE); i++){
-					comparePulseAvg += comparePulse[i];
+					comparePulseAvgTemp += comparePulse[i];
 				}
 				
-				comparePulseAvg = comparePulseAvg / MAX_COMPARE_PULSE;
-				
-				// if average pulse is more the 0
-				if(comparePulseAvg > 0){
-					// calculate average rpm
+				if (comparePulseAvgTemp > 0){
+					comparePulseAvg = (float)comparePulseAvgTemp / (float)MAX_COMPARE_PULSE;
 					rpmPulse = (((1000000.0 / (float)comparePulseAvg) * 60.0) / (float)MAGNETS_ON_ROTOR);
 				}
+				else{
+					rpmPulse = 0;
+				}
+				
+				#if defined(REAL_RPM_PID)       
+					// PID
+					if(!(GPIOB->IDR &(1<<2))){
+						runPID();
+					}
+					else{
+						multiplierPid = 150;
+					}
+				#endif	
+				
 				// reset pulse state
 				pulseTrigger = 0;
 			}
@@ -285,14 +371,50 @@ int main(void)
 			}
 		}
 
-#ifdef UART_DATA		
+#if defined(UART_DATA)
+		// Check uart for data
+		if((dataCommand == 1)){
+			uartDataReceive();
+		}
+		
+		// if there is no pulse running and timer has passed the data cyclus time
+		if((pulseTrigger == 0) && (TIM1->CNT >= (prevTimerDataCount + DATA_CYCLE_COUNTER))){
+			// save new timer value
+			prevTimerDataCount = TIM1->CNT;
+			
+			uartDataTransmit();
+		
+		}
+
+		if((prevTimerDataCount > (comparePulse[0] - DATA_CYCLE_COUNTER)) || (prevTimerDataCount > (65534 - DATA_CYCLE_COUNTER))){
+			prevTimerDataCount = 0;
+		}
+#elif defined(WIFI_UART_DATA)
 		// Check uart for data
 		if((wifiEnable == 1) && (dataCommand == 1)){
 			uartDataReceive();
 		}
 		
 		// if there is no pulse running and timer has passed the data cyclus time
-		if((wifiEnable == 1) &&(pulseTrigger == 0) && (TIM1->CNT >= (prevTimerDataCount + DATA_CYCLE_COUNTER))){
+		if((wifiEnable == 1) && (pulseTrigger == 0) && (TIM1->CNT >= (prevTimerDataCount + DATA_CYCLE_COUNTER))){
+			// save new timer value
+			prevTimerDataCount = TIM1->CNT;
+			
+			uartDataTransmit();
+		
+		}
+
+		if((prevTimerDataCount > (comparePulse[0] - DATA_CYCLE_COUNTER)) || (prevTimerDataCount > (65534 - DATA_CYCLE_COUNTER))){
+			prevTimerDataCount = 0;
+		}
+#elif defined(BLUE_UART_DATA)
+		// Check uart for data
+		if((bluetoothEnable == 1) && (dataCommand == 1)){
+			uartDataReceive();
+		}
+		
+		// if there is no pulse running and timer has passed the data cyclus time
+		if((bluetoothEnable == 1) && (pulseTrigger == 0) && (TIM1->CNT >= (prevTimerDataCount + DATA_CYCLE_COUNTER))){
 			// save new timer value
 			prevTimerDataCount = TIM1->CNT;
 			
@@ -311,18 +433,29 @@ int main(void)
 			prevTimerAnalogCount = TIM1->CNT;
 			
 			// Handle Analog Values
-			readAnalogConversion();
 			
-			// Handle motor runstate
-			handleMotorRunstate();
+#if defined(UART_DATA) || defined(WIFI_UART_DATA) || defined(BLUE_UART_DATA)
+			if(analogValueMode == 0x01){
+				readBusConversion();
+			}	
 
+
+			else{
+				readAnalogConversion();
+			}
+#else
+			readAnalogConversion();
+#endif
 		}
+		
+		// Handle motor runstate
+			handleMotorRunstate();
 		
 		if((prevTimerAnalogCount > (comparePulse[0] - ANALOG_CYCLE_COUNTER)) || (prevTimerAnalogCount > (65534 - ANALOG_CYCLE_COUNTER))){
 			prevTimerAnalogCount = 0;
 		}
 		
-#ifdef RPM_PID
+#if defined(RPM_PID)
 		if(TIM1->CNT >= (prevTimerPIDCount + PID_CYCLE_COUNTER)){
 			prevTimerPIDCount = TIM1->CNT;
 			
@@ -338,8 +471,8 @@ int main(void)
 		if((prevTimerPIDCount > (comparePulse[0] - PID_CYCLE_COUNTER)) || (prevTimerPIDCount > (65534 - PID_CYCLE_COUNTER))){
 			prevTimerPIDCount = 0;
 		}
-#else
-		multiplierPid = 150;
+#elif !defined(RPM_PID) && !defined(REAL_RPM_PID)
+	multiplierPid = 150;
 #endif
 	}
   /* USER CODE END 3 */
@@ -653,12 +786,11 @@ static void MX_UART5_Init(void)
 {
 
   /* USER CODE BEGIN UART5_Init 0 */
-
-#ifdef UART_DATA
   /* USER CODE END UART5_Init 0 */
 
   /* USER CODE BEGIN UART5_Init 1 */
-
+	//11500 for serial and wifi
+	//38400 for bluetooth
   /* USER CODE END UART5_Init 1 */
   huart5.Instance = UART5;
   huart5.Init.BaudRate = 115200;
@@ -673,10 +805,12 @@ static void MX_UART5_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN UART5_Init 2 */
-	
-//#ifdef UART_DATA
+
 	// Connect to the wifi network
+#if defined(WIFI_UART_DATA)
 	initSerialWifi();
+#elif defined(BLUE_UART_DATA)
+	initSerialBluetooth();
 #endif
   /* USER CODE END UART5_Init 2 */
 
@@ -731,12 +865,132 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
-{
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc){
 	analogConvComplete = 1;
 }
 
-#ifdef UART_DATA
+#if defined(UART_DATA) || defined(WIFI_UART_DATA) || defined(BLUE_UART_DATA)
+	void readAnalogConversion(){
+		// start a adc poll
+		HAL_ADC_Start_DMA(&hadc1, (uint32_t*) analogInputs, analogChCounts);
+			
+		// hold program till conversion is complete
+		while(analogConvComplete == 0){			}
+			
+		// reset analog conversion flag
+		analogConvComplete = 0;
+			
+		analogInAvg[0][0] = analogInputs[0];
+		analogInAvg[0][1] = analogInputs[1];
+
+	
+		// shift analog input array
+		for(int i = (SHIFT_ARRAY - 1);i >= 0;i--){
+			for(int ii = 0;ii <= 1;ii++){
+				analogInAvg[i][ii] = analogInAvg[(i-1)][ii];
+			}
+		}
+			
+		// reset voltage average
+		voltageAvgCalc = 0;
+			
+		// add all voltage registers together
+		for(int i = 0; i < (VOLTAGE_SHIFT); i++){
+			voltageAvgCalc += analogInAvg[i][0];
+		}
+							
+		// divide by the registers
+		voltageAvg = voltageAvgCalc / VOLTAGE_SHIFT;
+			
+		// reset current average
+		currentAvgCalc = 0;
+			
+		// add all current registers together
+		for(int i = 0; i < (CURRENT_SHIFT); i++){
+			currentAvgCalc += analogInAvg[i][1];
+		}
+			
+		// divide by the registers		
+		currentAvg = currentAvgCalc / CURRENT_SHIFT;
+		
+		// calculate battery voltage
+		if (voltageAvg > 0){
+			voltageBattery = (((float)MAX_BATTERY_VOLTAGE / 4095.0) * (float)voltageAvg); // to be verified
+		}
+		else{
+			voltageBattery = 0;
+		}
+			
+		// calculate battery current
+		if (currentAvg > 0){
+			currentBattery = (((float)MAX_BATTERY_CURRENT / 4095.0) * (float)currentAvg); // to be verified
+		}
+		else{
+			currentBattery = 0;
+		}
+			
+#if defined(UART_DATA)
+		// calculate delay pulse
+		// select pulse delay mode
+		if(modeDelayPulse == 1){
+			delayPulse = ((((float)MAX_PULSE_DELAY / 4095.0) * (float)delayPulseSerial) * (float)STEP_MULTIPLIER_DELAY);//analogInputs[2]); // to be verified 1000 = 1mS  * multiplier
+		}
+		else{
+			delayPulse =(((float) comparePulseAvg / 1000.0) * ((900.0 / 4095.0) * (float)delayPulseSerial)); // rpm percentage delay
+		}
+		
+		// select pulse width mode
+		if(modeWidthPulse == 1){
+			// timed width
+			widthPulse = ((((float)MAX_PULSE_WIDTH / 4095.0) * (float)modeWidthPulseSerial) * (float)multiplierPid); // to be verified 1000 = 1mS  * multiplier
+		}
+		else{
+			// duty cycle
+			widthPulse = (((float)comparePulseAvg / 10000.0) * ((5000.0 / 4095.0) * (((float)modeWidthPulseSerial / 100.0) * (float)multiplierPid)));//(float) analogInputs[3])); // 0-50% duty cycle
+		}
+#elif defined(WIFI_UART_DATA)
+		// calculate delay pulse
+		// select pulse delay mode
+		if(modeDelayPulse == 1){
+			delayPulse = ((((float)MAX_PULSE_DELAY / 4095.0) * (float)delayPulseWifi) * (float)STEP_MULTIPLIER_DELAY);//analogInputs[2]); // to be verified 1000 = 1mS  * multiplier
+		}
+		else{
+			delayPulse =(((float) comparePulseAvg / 1000.0) * ((900.0 / 4095.0) * (float)delayPulseWifi)); // rpm percentage delay
+		}
+		
+		// select pulse width mode
+		if(modeWidthPulse == 1){
+			// timed width
+			widthPulse = ((((float)MAX_PULSE_WIDTH / 4095.0) * (float)modeWidthPulseWifi) * (float)multiplierPid); // to be verified 1000 = 1mS  * multiplier
+		}
+		else{
+			// duty cycle
+			widthPulse = (((float)comparePulseAvg / 10000.0) * ((5000.0 / 4095.0) * (((float)modeWidthPulseWifi / 100.0) * (float)multiplierPid)));//(float) analogInputs[3])); // 0-50% duty cycle
+		}
+#elif defined(BLUE_UART_DATA)
+		// calculate delay pulse
+		// select pulse delay mode
+		if(modeDelayPulse == 1){
+			delayPulse = ((((float)MAX_PULSE_DELAY / 4095.0) * (float)delayPulseBluetooth) * (float)STEP_MULTIPLIER_DELAY);//analogInputs[2]); // to be verified 1000 = 1mS  * multiplier
+		}
+		else{
+			delayPulse =(((float) comparePulseAvg / 1000.0) * ((900.0 / 4095.0) * (float)delayPulseBluetooth)); // rpm percentage delay
+		}
+		
+		// select pulse width mode
+		if(modeWidthPulse == 1){
+			// timed width
+			widthPulse = ((((float)MAX_PULSE_WIDTH / 4095.0) * (float)modeWidthPulseBluetooth) * (float)multiplierPid); // to be verified 1000 = 1mS  * multiplier
+		}
+		else{
+			// duty cycle
+			widthPulse = (((float)comparePulseAvg / 10000.0) * ((5000.0 / 4095.0) * (((float)modeWidthPulseBluetooth / 100.0) * (float)multiplierPid)));//(float) analogInputs[3])); // 0-50% duty cycle
+		}
+#endif		
+	}
+#endif
+
+#if defined(UART_DATA)
 	void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) 
 	{
 		HAL_UART_Receive_IT(&huart5, Rx_data, 4); 
@@ -752,52 +1006,79 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 					break;
 				
 				case 0x02: // enable motor
-					enablePulseWifi = Rx_data[2];
+					enablePulseSerial = Rx_data[2];
 					break;
 		
-	#ifdef RPM_PID		
+	#if defined(RPM_PID)
 				case 0x03: // enable pid
-					pidEnabledWifi = Rx_data[2]; // 0= disabled 1=standard coded pid values 2=bus controlled pid values
+					pidEnabledSerial = Rx_data[2]; // 0= disabled 1=standard coded pid values 2=bus controlled pid values
 					break;
 				case 0x05: // set rpm
-					rpmPulseWifi = (Rx_data[2] << 24) | (Rx_data[3] << 16) | (Rx_data[4] << 8) | (Rx_data[5]);
+					rpmPulseSerial = (Rx_data[2] << 24) | (Rx_data[3] << 16) | (Rx_data[4] << 8) | (Rx_data[5]);
+					break;
+	#elif defined(REAL_RPM_PID)
+				case 0x03: // enable pid
+					pidEnabledSerial = Rx_data[2]; // 0= disabled 1=standard coded pid values 2=bus controlled pid values
+					break;
+				case 0x05: // set rpm
+					rpmPulseSerial = (Rx_data[2] << 24) | (Rx_data[3] << 16) | (Rx_data[4] << 8) | (Rx_data[5]);
 					break;
 	#endif		
 			
 				case 0x06: // set mode width pulse
-					modeWidthPulseWifi = Rx_data[2];
+					modeWidthPulseSerial = Rx_data[2];
 					break;
 			
 				case 0x07: // set mode delay pulse
-					modeDelayPulseWifi = Rx_data[2];
+					modeDelayPulseSerial = Rx_data[2];
 					break;
 		
 				case 0x40: // set pulse width
-					pulseWidthWifi = (Rx_data[2] << 24) | (Rx_data[3] << 16) | (Rx_data[4] << 8) | (Rx_data[5]);
+					pulseWidthSerial = (Rx_data[2] << 24) | (Rx_data[3] << 16) | (Rx_data[4] << 8) | (Rx_data[5]);
 					break;
 				
 				case 0x50: // set delay pulse
-					delayPulseWifi = (Rx_data[2] << 24) | (Rx_data[3] << 16) | (Rx_data[4] << 8) | (Rx_data[5]);
+					delayPulseSerial = (Rx_data[2] << 24) | (Rx_data[3] << 16) | (Rx_data[4] << 8) | (Rx_data[5]);
 					break;
-	#ifdef RPM_PID				
+	#if defined(RPM_PID)				
 				case 0x60: // set pid deadband
-					deadbandPidWifi = (Rx_data[2] << 24) | (Rx_data[3] << 16) | (Rx_data[4] << 8) | (Rx_data[5]);
+					deadbandPidSerial = (Rx_data[2] << 24) | (Rx_data[3] << 16) | (Rx_data[4] << 8) | (Rx_data[5]);
 					break;
 				
 				case 0x61: // set pid min bandwidth
-					minBandwidthPidWifi = (Rx_data[2] << 24) | (Rx_data[3] << 16) | (Rx_data[4] << 8) | (Rx_data[5]);
+					minBandwidthPidSerial = (Rx_data[2] << 24) | (Rx_data[3] << 16) | (Rx_data[4] << 8) | (Rx_data[5]);
 					break;
 				
 				case 0x62: // set pid max bandwidth
-					maxBandwidthPidWifi = (Rx_data[2] << 24) | (Rx_data[3] << 16) | (Rx_data[4] << 8) | (Rx_data[5]);
+					maxBandwidthPidSerial = (Rx_data[2] << 24) | (Rx_data[3] << 16) | (Rx_data[4] << 8) | (Rx_data[5]);
 					break;
 				
 				case 0x63: // set pid min tune
-					minTunePidWifi = (Rx_data[2] << 24) | (Rx_data[3] << 16) | (Rx_data[4] << 8) | (Rx_data[5]);
+					minTunePidSerial = (Rx_data[2] << 24) | (Rx_data[3] << 16) | (Rx_data[4] << 8) | (Rx_data[5]);
 					break;
 				
 				case 0x64: // set pid max tune
-					maxTunePidWifi = (Rx_data[2] << 24) | (Rx_data[3] << 16) | (Rx_data[4] << 8) | (Rx_data[5]);
+					maxTunePidSerial = (Rx_data[2] << 24) | (Rx_data[3] << 16) | (Rx_data[4] << 8) | (Rx_data[5]);
+					break;
+		#elif defined(REAL_RPM_PID)				
+				case 0x60: // set pid deadband
+					deadbandPidSerial = (Rx_data[2] << 24) | (Rx_data[3] << 16) | (Rx_data[4] << 8) | (Rx_data[5]);
+					break;
+				
+				case 0x61: // set pid min bandwidth
+					minBandwidthPidSerial = (Rx_data[2] << 24) | (Rx_data[3] << 16) | (Rx_data[4] << 8) | (Rx_data[5]);
+					break;
+				
+				case 0x62: // set pid max bandwidth
+					maxBandwidthPidSerial = (Rx_data[2] << 24) | (Rx_data[3] << 16) | (Rx_data[4] << 8) | (Rx_data[5]);
+					break;
+				
+				case 0x63: // set pid min tune
+					minTunePidSerial = (Rx_data[2] << 24) | (Rx_data[3] << 16) | (Rx_data[4] << 8) | (Rx_data[5]);
+					break;
+				
+				case 0x64: // set pid max tune
+					maxTunePidSerial = (Rx_data[2] << 24) | (Rx_data[3] << 16) | (Rx_data[4] << 8) | (Rx_data[5]);
 					break;
 		#endif
 			}
@@ -880,10 +1161,12 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 			dataCounter = 0;
 		} 
 	}
+#elif defined(WIFI_UART_DATA)
+#elif defined(BLUE_UART_DATA)
 #endif
 
 	
-#ifdef RPM_PID
+#if defined(RPM_PID)
 	void runPID(){
 			for(int i = (MAX_SHIFT_PID - 1); i >= 0; i--){
 				rpmDifference[i] = rpmDifference[(i - 1)];
@@ -921,10 +1204,31 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 			}
 		}
 	}
+#elif defined(REAL_RPM_PID)
+	void runPID(){ 
+		error = (float)rpmSetPulse - (float)rpmPulse; // determine error
+		cumError += error; // compute integral
+			rateError = (error - lastError);
+		
+		multiplierPid = kp*error + ki*cumError + kd*rateError;   
+		lastError = error; 
+		
+		if(multiplierPid > PID_MAX){
+			multiplierPid = PID_MAX;
+		}
+		else if(multiplierPid < PID_MIN){
+			multiplierPid = PID_MIN;
+		}
+	}
 #endif
 	
 void handleMotorRunstate(){
 	if(!(GPIOB->IDR &(1<<4)) && (motorRunState == 0)){
+#if defined(REAL_RPM_PID)
+		error = 0;
+		cumError = 0;
+		rateError = 0;
+#endif
 		motorRunState = 1;
 	}
 	else if(!(GPIOB->IDR &(1<<4)) && (motorRunState == 1)){
@@ -948,21 +1252,27 @@ void handleMotorRunstate(){
 		}
 	}
 	else if(!(GPIOB->IDR &(1<<4)) && (motorRunState == 2)){
-		for(int i = (MAX_COMPARE_PULSE - 1); i >= 0; i--){
-			comparePulse[i] = comparePulse[(i-1)];
+		// check if motor is still running
+		if(TIM1->CNT > 65000){
+			motorRunState = 0;
+			comparePulse[0] = 0;
 		}
+		
+		//for(int i = (MAX_COMPARE_PULSE - 1); i >= 0; i--){
+		//	comparePulse[i] = comparePulse[(i-1)];
+		//}
 			
-		comparePulseAvg = 0;
+		//comparePulseAvg = 0;
 				
-		for(int i = 0; i < (MAX_COMPARE_PULSE); i++){
-			comparePulseAvg += comparePulse[i];
-		}
+		//for(int i = 0; i < (MAX_COMPARE_PULSE); i++){
+		//	comparePulseAvg += comparePulse[i];
+		//}
 				
-		comparePulseAvg = (float)comparePulseAvg / (float)MAX_COMPARE_PULSE;
+		//comparePulseAvg = (float)comparePulseAvg / (float)MAX_COMPARE_PULSE;
 				
-		if(comparePulseAvg > 0){
-			rpmPulse = (((1000000.0 / (float)comparePulse[0]) * 60.0) / (float)MAGNETS_ON_ROTOR);
-		}
+		//if(comparePulseAvg > 0){
+		//	rpmPulse = (((1000000.0 / (float)comparePulse[0]) * 60.0) / (float)MAGNETS_ON_ROTOR);
+		//}
 	}
 	else{
 		motorRunState = 0;
@@ -1071,7 +1381,7 @@ void readAnalogConversion(){
 	}
 }
 
-#ifdef UART_DATA
+#if defined(WIFI_UART_DATA)
 	void initSerialWifi(){
 		HAL_Delay(500);
 	
@@ -1213,11 +1523,12 @@ void readAnalogConversion(){
 	bailout:
 			HAL_Delay(100);
 	}
-
+#elif defined(BLUE_UART_DATA)
 #endif
 /* USER CODE END 4 */
 
 /**
+
   * @brief  This function is executed in case of error occurrence.
   * @retval None
   */

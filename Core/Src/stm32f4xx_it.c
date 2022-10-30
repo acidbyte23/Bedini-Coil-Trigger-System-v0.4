@@ -66,6 +66,7 @@ extern int pulseTrigger;
 extern uint32_t comparePulse[];
 extern uint32_t rpmPulse;
 extern uint32_t rpmSetPulse;
+extern uint32_t totalPulseTime;
 extern int multiplierPulse;
 
 extern int motorRunState;
@@ -215,7 +216,7 @@ void SysTick_Handler(void)
 void EXTI0_IRQHandler(void)
 {
   /* USER CODE BEGIN EXTI0_IRQn 0 */
-	comparePulse[0]= TIM1->CNT;
+	totalPulseTime = TIM1->CNT;
 	TIM1->CNT = 0;
 	
 	if(!(GPIOB->IDR &(1<<4)) && (motorRunState == 2)){
