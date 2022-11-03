@@ -32,7 +32,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-//#define UART_DATA // enable uart data comms
+#define UART_DATA // enable uart data comms
 //#define WIFI_UART_DATA // enable uart over wifi
 //#define BLUE_UART_DATA // enable uart over bluetooth
 //#define RPM_PID // enable DIY PID
@@ -87,11 +87,12 @@ volatile int modeDelayPulse = 0;
 	uint32_t rpmDifferenceAvg;
 	uint32_t prevTimerPIDCount;
 #elif defined(REAL_RPM_PID) && !defined(RPM_PID)
+	int bandwidthPid = 10;
 	
 	//PID constants
-	double kp = 2;
-	double ki = 5;
-	double kd = 1;
+	double kp = 10.0;
+	double ki = 0.0001;
+	double kd = 3.0;
  
 	float error;
 	float lastError;
@@ -123,7 +124,7 @@ uint32_t prevTimerAnalogCount;
 volatile uint32_t	multiplierPid;
 volatile uint32_t delayPulse = 0;
 volatile uint32_t widthPulse = 0;
-int MAX_COMPARE_PULSE = 5;
+int MAX_COMPARE_PULSE = 10;
 const int MAXSET_COMPARE_PULSE = 20;
 volatile uint32_t comparePulse[MAXSET_COMPARE_PULSE];
 volatile uint32_t comparePulseAvg;
@@ -171,7 +172,14 @@ volatile uint32_t totalPulseTime;
 		uint32_t minTunePidSerial;
 		uint32_t maxTunePidSerial;
 		uint32_t rpmPulseSerial;
-	#elif defined(REAL_RPM_PID)   
+	#elif defined(REAL_RPM_PID) 
+		int pidEnabledSerial;
+		uint32_t deadbandPidSerial;
+		uint32_t minBandwidthPidSerial;
+		uint32_t maxBandwidthPidSerial;
+		uint32_t minTunePidSerial;
+		uint32_t maxTunePidSerial;
+		uint32_t rpmPulseSerial;  
 		//TODO
 	#endif
 	
@@ -271,7 +279,7 @@ void initSerialBLuetooth(void);
   * @retval int
   */
 int main(void)
- {
+{
   /* USER CODE BEGIN 1 */
 
   /* USER CODE END 1 */
@@ -870,7 +878,7 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc){
 }
 
 #if defined(UART_DATA) || defined(WIFI_UART_DATA) || defined(BLUE_UART_DATA)
-	void readAnalogConversion(){
+	void readBusConversion(){
 		// start a adc poll
 		HAL_ADC_Start_DMA(&hadc1, (uint32_t*) analogInputs, analogChCounts);
 			
@@ -1208,7 +1216,11 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc){
 	void runPID(){ 
 		error = (float)rpmSetPulse - (float)rpmPulse; // determine error
 		cumError += error; // compute integral
-			rateError = (error - lastError);
+		rateError = (error - lastError);
+		
+		if((rpmPulse < (rpmSetPulse + bandwidthPid)) && (rpmPulse > (rpmSetPulse - bandwidthPid))){
+			cumError = 0;
+		}
 		
 		multiplierPid = kp*error + ki*cumError + kd*rateError;   
 		lastError = error; 
@@ -1253,7 +1265,7 @@ void handleMotorRunstate(){
 	}
 	else if(!(GPIOB->IDR &(1<<4)) && (motorRunState == 2)){
 		// check if motor is still running
-		if(TIM1->CNT > 65000){
+		if(TIM1->CNT > 65400){
 			motorRunState = 0;
 			comparePulse[0] = 0;
 		}
