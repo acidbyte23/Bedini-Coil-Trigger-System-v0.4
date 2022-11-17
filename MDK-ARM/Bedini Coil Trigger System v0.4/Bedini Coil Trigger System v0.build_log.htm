@@ -27,7 +27,46 @@ Project File Date:  11/17/2022
 <h2>Output:</h2>
 *** Using Compiler 'V5.06 update 6 (build 750)', folder: 'X:\Keil_v5\ARM\ARMCC\Bin'
 Build target 'Bedini Coil Trigger System v0.5'
-"Bedini Coil Trigger System v0.4\Bedini Coil Trigger System v0.4" - 0 Error(s), 0 Warning(s).
+compiling main.c...
+../Core/Src/main.c(56): warning:  #1035-D: single-precision operand implicitly converted to double-precision
+  	const uint32_t MAX_BATTERY_VOLTAGE = ((((voltageR1 + voltageR2) / voltageR2) * 3.3) * 100.0); // ~3.3 volt = (100k -> 5k) = resolution of ~mV
+../Core/Src/main.c(255): warning:  #1035-D: single-precision operand implicitly converted to double-precision
+  						rpmPulse = (((1000000.0 / (float)comparePulseAvg) * 60.0) / (float)MAGNETS_ON_ROTOR);
+../Core/Src/main.c(755): warning:  #1035-D: single-precision operand implicitly converted to double-precision
+  			voltageBattery = (((float)MAX_BATTERY_VOLTAGE / 4095.0) * (float)voltageAvg); // to be verified
+../Core/Src/main.c(763): warning:  #1035-D: single-precision operand implicitly converted to double-precision
+  			currentBattery = (((float)MAX_BATTERY_CURRENT / 4095.0) * (float)currentAvg); // to be verified
+../Core/Src/main.c(772): warning:  #1035-D: single-precision operand implicitly converted to double-precision
+  			delayPulse = ((((float)MAX_PULSE_DELAY / 4095.0) * (float)delayPulseSerial) * (float)STEP_MULTIPLIER_DELAY);//analogInputs[2]); // to be verified 1000 = 1mS  * multiplier
+../Core/Src/main.c(775): warning:  #1035-D: single-precision operand implicitly converted to double-precision
+  			delayPulse =(((float) comparePulseAvg / 1000.0) * ((900.0 / 4095.0) * (float)delayPulseSerial)); // rpm percentage delay
+../Core/Src/main.c(781): warning:  #1035-D: single-precision operand implicitly converted to double-precision
+  			widthPulse = ((((float)MAX_PULSE_WIDTH / 4095.0) * (float)pulseWidthSerial) * (float)multiplierPid); // to be verified 1000 = 1mS  * multiplier
+../Core/Src/main.c(785): warning:  #1035-D: single-precision operand implicitly converted to double-precision
+  			widthPulse = (((float)comparePulseAvg / 10000.0) * ((5000.0 / 4095.0) * (((float)pulseWidthSerial / 100.0) * (float)multiplierPid)));//(float) analogInputs[3])); // 0-50% duty cycle
+../Core/Src/main.c(785): warning:  #1035-D: single-precision operand implicitly converted to double-precision
+  			widthPulse = (((float)comparePulseAvg / 10000.0) * ((5000.0 / 4095.0) * (((float)pulseWidthSerial / 100.0) * (float)multiplierPid)));//(float) analogInputs[3])); // 0-50% duty cycle
+../Core/Src/main.c(1257): warning:  #1035-D: single-precision operand implicitly converted to double-precision
+  				rpmPulse = (((1000000.0 / (float)comparePulse[0]) * 60.0) / (float)MAGNETS_ON_ROTOR);
+../Core/Src/main.c(1341): warning:  #1035-D: single-precision operand implicitly converted to double-precision
+  			voltageBattery = (((float)MAX_BATTERY_VOLTAGE / 4095.0) * (float)voltageAvg); // to be verified
+../Core/Src/main.c(1349): warning:  #1035-D: single-precision operand implicitly converted to double-precision
+  			currentBattery = (((float)MAX_BATTERY_CURRENT / 4095.0) * (float)currentAvg); // to be verified
+../Core/Src/main.c(1358): warning:  #1035-D: single-precision operand implicitly converted to double-precision
+  			delayPulse = ((((float)MAX_PULSE_DELAY / 4095.0) * (float)analogInputs[2]) * (float)STEP_MULTIPLIER_DELAY);//analogInputs[2]); // to be verified 1000 = 1mS  * multiplier
+../Core/Src/main.c(1361): warning:  #1035-D: single-precision operand implicitly converted to double-precision
+  			delayPulse =(((float) comparePulseAvg / 1000.0) * ((900.0 / 4095.0) * (float)delayAvg)); // rpm percentage delay
+../Core/Src/main.c(1367): warning:  #1035-D: single-precision operand implicitly converted to double-precision
+  			widthPulse = ((((float)MAX_PULSE_WIDTH / 4095.0) * (float)widthAvg) * (float)multiplierPid); // to be verified 1000 = 1mS  * multiplier
+../Core/Src/main.c(1371): warning:  #1035-D: single-precision operand implicitly converted to double-precision
+  			widthPulse = (((float)comparePulseAvg / 10000.0) * ((5000.0 / 4095.0) * (((float)widthAvg / 100.0) * (float)multiplierPid)));//(float) analogInputs[3])); // 0-50% duty cycle
+../Core/Src/main.c(1371): warning:  #1035-D: single-precision operand implicitly converted to double-precision
+  			widthPulse = (((float)comparePulseAvg / 10000.0) * ((5000.0 / 4095.0) * (((float)widthAvg / 100.0) * (float)multiplierPid)));//(float) analogInputs[3])); // 0-50% duty cycle
+../Core/Src/main.c: 17 warnings, 0 errors
+linking...
+Program Size: Code=17464 RO-data=516 RW-data=256 ZI-data=2520  
+FromELF: creating hex file...
+"Bedini Coil Trigger System v0.4\Bedini Coil Trigger System v0.4" - 0 Error(s), 17 Warning(s).
 
 <h2>Software Packages used:</h2>
 
@@ -51,7 +90,7 @@ Package Vendor: Keil
 
    * Component: ARM::CMSIS:CORE:5.4.0
       Include file:  CMSIS\Core\Include\tz_context.h
-Build Time Elapsed:  00:00:01
+Build Time Elapsed:  00:00:03
 </pre>
 </body>
 </html>
