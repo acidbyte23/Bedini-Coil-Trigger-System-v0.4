@@ -55,10 +55,13 @@
 
 /* External variables --------------------------------------------------------*/
 extern DMA_HandleTypeDef hdma_adc1;
+extern TIM_HandleTypeDef htim2;
 extern TIM_HandleTypeDef htim3;
 extern UART_HandleTypeDef huart5;
 /* USER CODE BEGIN EV */
 extern TIM_HandleTypeDef htim1;
+extern TIM_HandleTypeDef htim2;
+extern TIM_HandleTypeDef htim3;
 extern uint32_t delayPulse;
 extern uint32_t widthPulse;
 extern int pulseTrigger;
@@ -216,8 +219,12 @@ void SysTick_Handler(void)
 void EXTI0_IRQHandler(void)
 {
   /* USER CODE BEGIN EXTI0_IRQn 0 */
-	totalPulseTime = TIM1->CNT;
-	TIM1->CNT = 0;
+	totalPulseTime = TIM2->CNT;
+	TIM2->CCR1 = delayPulse;
+	TIM2->CNT = 0;
+	
+	HAL_TIM_OC_Start(&htim2, TIM_CHANNEL_1);
+	__HAL_TIM_ENABLE(&htim2);
 	
 	if(!(GPIOB->IDR &(1<<4)) && (motorRunState == 2)){
 		pulseTrigger = 1;
@@ -230,6 +237,28 @@ void EXTI0_IRQHandler(void)
   /* USER CODE BEGIN EXTI0_IRQn 1 */
 
   /* USER CODE END EXTI0_IRQn 1 */
+}
+
+/**
+  * @brief This function handles TIM2 global interrupt.
+  */
+void TIM2_IRQHandler(void)
+{
+  /* USER CODE BEGIN TIM2_IRQn 0 */
+
+	// divide pulsewidth by 4 and pass to timer register
+	TIM3->ARR = widthPulse / 3;
+	// enable one shot timer
+	__HAL_TIM_ENABLE(&htim3);
+
+	
+	pulseTrigger = 2;
+	
+  /* USER CODE END TIM2_IRQn 0 */
+  HAL_TIM_IRQHandler(&htim2);
+  /* USER CODE BEGIN TIM2_IRQn 1 */
+
+  /* USER CODE END TIM2_IRQn 1 */
 }
 
 /**

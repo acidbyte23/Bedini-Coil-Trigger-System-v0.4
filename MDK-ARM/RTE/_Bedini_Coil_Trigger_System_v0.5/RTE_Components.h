@@ -4,7 +4,7 @@
  *      *** Do not modify ! ***
  *
  * Project: 'Bedini Coil Trigger System v0.5' 
- * Target:  'Bedini Coil Trigger System v0.4' 
+ * Target:  'Bedini Coil Trigger System v0.5' 
  */
 
 #ifndef RTE_COMPONENTS_H

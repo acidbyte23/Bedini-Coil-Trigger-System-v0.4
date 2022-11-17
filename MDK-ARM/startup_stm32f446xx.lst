@@ -878,7 +878,7 @@ ARM Macro Assembler    Page 14
 Command Line: --debug --xref --diag_suppress=9931 --cpu=Cortex-M4.fp.sp --apcs=
 interwork --depend="bedini coil trigger system v0.4\startup_stm32f446xx.d" -o"b
 edini coil trigger system v0.4\startup_stm32f446xx.o" -I.\RTE\_Bedini_Coil_Trig
-ger_System_v0.4 -I"C:\Users\Acid Byte\AppData\Local\Arm\Packs\ARM\CMSIS\5.7.0\C
+ger_System_v0.5 -I"C:\Users\Acid Byte\AppData\Local\Arm\Packs\ARM\CMSIS\5.7.0\C
 MSIS\Core\Include" -I"C:\Users\Acid Byte\AppData\Local\Arm\Packs\Keil\STM32F4xx
 _DFP\2.14.0\Drivers\CMSIS\Device\ST\STM32F4xx\Include" --predefine="__EVAL SETA
  1" --predefine="__UVISION_VERSION SETA 530" --predefine="_RTE_ SETA 1" --prede
