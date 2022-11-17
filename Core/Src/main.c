@@ -228,21 +228,28 @@
 
 			/* USER CODE BEGIN 3 */
 			// check if motor is enabled and the motor is in running state
-			if(((!(GPIOB->IDR &(1<<4)) && (analogValueMode == 0x00)) || (analogValueMode == 0x01) && (enablePulseSerial == 0x01))&& (motorRunState == 2)){
+			if(((!(GPIOB->IDR &(1<<4)) && (analogValueMode == 0x00)) || (analogValueMode == 0x01) && (enablePulseSerial == 0x01)) && (motorRunState == 2)){
+				
 				// check if the pulse has passed
 				if(pulseTrigger == 2){
+					
 					// take 2 pulses and calculate average
 					for(int i = (MAX_COMPARE_PULSE - 1); i >= 0; i--){
 						comparePulse[i] = comparePulse[(i-1)];
 					}
+					
+					// save new pulse time
 					comparePulse[0] = totalPulseTime;
 					
+					//reset pulse avarage
 					comparePulseAvgTemp = 0;
 					
+					// count all values up
 					for(int i = 0; i < (MAX_COMPARE_PULSE); i++){
 						comparePulseAvgTemp += comparePulse[i];
 					}
 					
+					// calculate pulse avarage and rpm if > 0
 					if (comparePulseAvgTemp > 0){
 						comparePulseAvg = (float)comparePulseAvgTemp / (float)MAX_COMPARE_PULSE;
 						rpmPulse = (((1000000.0 / (float)comparePulseAvg) * 60.0) / (float)MAGNETS_ON_ROTOR);
@@ -251,72 +258,42 @@
 						rpmPulse = 0;
 					}
 					
-					#if defined(REAL_RPM_PID)       
-						// PID
-						if(!(GPIOB->IDR &(1<<2))){
-							runPID();
-						}
-						else{
-							multiplierPid = 150;
-						}
-					#endif	
+					// PID
+					if(((!(GPIOB->IDR &(1<<2))) && (analogValueMode  == 0x00)) || ((analogValueMode == 0x01) && (pidEnabledSerial == 0x01))){
+						runPID();
+					}
+					else{
+						multiplierPid = 150;
+					}
 					
 					// reset pulse state
 					pulseTrigger = 0;
 				}
 
-			//	// if time passed delay of pulse and a pulse has to be fired
-			//	if((TIM1->CNT >= delayPulse) && (pulseTrigger == 1)){
-				//	// divide pulsewidth by 4 and pass to timer register
-				//	TIM3->ARR = widthPulse / 3;
-				//	// enable one shot timer
-				//	__HAL_TIM_ENABLE(&htim3);
-					// set new pulse state
-				//	pulseTrigger = 2;
-				//}
 			}
-
-			// Check uart for data
-		///	if((dataCommand == 1)){
-		//		uartDataReceive();
-		//	}
-			
-			// if there is no pulse running and timer has passed the data cyclus time
-			//if((pulseTrigger == 0) && (TIM1->CNT >= (prevTimerDataCount + DATA_CYCLE_COUNTER))){
-				// save new timer value
-			//	prevTimerDataCount = TIM1->CNT;
-				
-			//	uartDataTransmit();
-			
-			//}
-
-			//if((prevTimerDataCount > (comparePulse[0] - DATA_CYCLE_COUNTER)) || (prevTimerDataCount > (65534 - DATA_CYCLE_COUNTER))){
-			//	prevTimerDataCount = 0;
-			//}
 				
 			// read analog, do pid, handle motor state ever x cyclus time
 			if( /*pulseTrigger == 0 &&*/ (TIM2->CNT >= (prevTimerAnalogCount + ANALOG_CYCLE_COUNTER))){
+				
 				// set new cycle time
 				prevTimerAnalogCount = TIM2->CNT;
 				
 				// Handle Analog Values
-				
 				if(analogValueMode == 0x01){
 					readBusConversion();
 				}	
-
-
 				else{
 					readAnalogConversion();
 				}
 			}
 			
-			// Handle motor runstate
-				handleMotorRunstate();
-			
+			// check max timer value
 			if((prevTimerAnalogCount > (comparePulse[0] - ANALOG_CYCLE_COUNTER)) || (prevTimerAnalogCount > (4294966 - ANALOG_CYCLE_COUNTER))){
 				prevTimerAnalogCount = 0;
 			}
+			
+			// Handle motor runstate
+			handleMotorRunstate();
 
 		}
 		/* USER CODE END 3 */
@@ -726,511 +703,360 @@
 		analogConvComplete = 1;
 	}
 
-		void readBusConversion(){
-			// start a adc poll
-			HAL_ADC_Start_DMA(&hadc1, (uint32_t*) analogInputs, analogChCounts);
+	void readBusConversion(){
+		// start a adc poll
+		HAL_ADC_Start_DMA(&hadc1, (uint32_t*) analogInputs, analogChCounts);
 				
-			// hold program till conversion is complete
-			while(analogConvComplete == 0){			}
+		// hold program till conversion is complete
+		while(analogConvComplete == 0){			}
 				
-			// reset analog conversion flag
-			analogConvComplete = 0;
+		// reset analog conversion flag
+		analogConvComplete = 0;
 				
-			analogInAvg[0][0] = analogInputs[0];
-			analogInAvg[0][1] = analogInputs[1];
+		analogInAvg[0][0] = analogInputs[0];
+		analogInAvg[0][1] = analogInputs[1];
 
 		
-			// shift analog input array
-			for(int i = (SHIFT_ARRAY - 1);i >= 0;i--){
-				for(int ii = 0;ii <= 1;ii++){
-					analogInAvg[i][ii] = analogInAvg[(i-1)][ii];
-				}
+		// shift analog input array
+		for(int i = (SHIFT_ARRAY - 1);i >= 0;i--){
+			for(int ii = 0;ii <= 1;ii++){
+				analogInAvg[i][ii] = analogInAvg[(i-1)][ii];
 			}
+		}
 				
-			// reset voltage average
-			voltageAvgCalc = 0;
+		// reset voltage average
+		voltageAvgCalc = 0;
 				
-			// add all voltage registers together
-			for(int i = 0; i < (VOLTAGE_SHIFT); i++){
-				voltageAvgCalc += analogInAvg[i][0];
-			}
+		// add all voltage registers together
+		for(int i = 0; i < (VOLTAGE_SHIFT); i++){
+			voltageAvgCalc += analogInAvg[i][0];
+		}
 								
-			// divide by the registers
-			voltageAvg = voltageAvgCalc / VOLTAGE_SHIFT;
+		// divide by the registers
+		voltageAvg = voltageAvgCalc / VOLTAGE_SHIFT;
 				
-			// reset current average
-			currentAvgCalc = 0;
+		// reset current average
+		currentAvgCalc = 0;
 				
-			// add all current registers together
-			for(int i = 0; i < (CURRENT_SHIFT); i++){
-				currentAvgCalc += analogInAvg[i][1];
-			}
+		// add all current registers together
+		for(int i = 0; i < (CURRENT_SHIFT); i++){
+			currentAvgCalc += analogInAvg[i][1];
+		}
 				
-			// divide by the registers		
-			currentAvg = currentAvgCalc / CURRENT_SHIFT;
+		// divide by the registers		
+		currentAvg = currentAvgCalc / CURRENT_SHIFT;
 			
-			// calculate battery voltage
-			if (voltageAvg > 0){
-				voltageBattery = (((float)MAX_BATTERY_VOLTAGE / 4095.0) * (float)voltageAvg); // to be verified
-			}
-			else{
-				voltageBattery = 0;
-			}
+		// calculate battery voltage
+		if (voltageAvg > 0){
+			voltageBattery = (((float)MAX_BATTERY_VOLTAGE / 4095.0) * (float)voltageAvg); // to be verified
+		}
+		else{
+			voltageBattery = 0;
+		}
 				
-			// calculate battery current
-			if (currentAvg > 0){
-				currentBattery = (((float)MAX_BATTERY_CURRENT / 4095.0) * (float)currentAvg); // to be verified
-			}
-			else{
-				currentBattery = 0;
-			}
-				
-			// calculate delay pulse
-			// select pulse delay mode
-			if(modeDelayPulse == 1){
-				delayPulse = ((((float)MAX_PULSE_DELAY / 4095.0) * (float)delayPulseSerial) * (float)STEP_MULTIPLIER_DELAY);//analogInputs[2]); // to be verified 1000 = 1mS  * multiplier
-			}
-			else{
-				delayPulse =(((float) comparePulseAvg / 1000.0) * ((900.0 / 4095.0) * (float)delayPulseSerial)); // rpm percentage delay
-			}
+		// calculate battery current
+		if (currentAvg > 0){
+			currentBattery = (((float)MAX_BATTERY_CURRENT / 4095.0) * (float)currentAvg); // to be verified
+		}
+		else{
+			currentBattery = 0;
+		}
 			
-			// select pulse width mode
-			if(modeWidthPulse == 1){
-				// timed width
-				widthPulse = ((((float)MAX_PULSE_WIDTH / 4095.0) * (float)pulseWidthSerial) * (float)multiplierPid); // to be verified 1000 = 1mS  * multiplier
-			}
-			else{
-				// duty cycle
-				widthPulse = (((float)comparePulseAvg / 10000.0) * ((5000.0 / 4095.0) * (((float)pulseWidthSerial / 100.0) * (float)multiplierPid)));//(float) analogInputs[3])); // 0-50% duty cycle
+		// calculate delay pulse
+		// select pulse delay mode
+		if(modeDelayPulse == 1){
+			delayPulse = ((((float)MAX_PULSE_DELAY / 4095.0) * (float)delayPulseSerial) * (float)STEP_MULTIPLIER_DELAY);//analogInputs[2]); // to be verified 1000 = 1mS  * multiplier
+		}
+		else{
+			delayPulse =(((float) comparePulseAvg / 1000.0) * ((900.0 / 4095.0) * (float)delayPulseSerial)); // rpm percentage delay
+		}
+		
+		// select pulse width mode
+		if(modeWidthPulse == 1){
+			// timed width
+			widthPulse = ((((float)MAX_PULSE_WIDTH / 4095.0) * (float)pulseWidthSerial) * (float)multiplierPid); // to be verified 1000 = 1mS  * multiplier
+		}
+		else{
+			// duty cycle
+			widthPulse = (((float)comparePulseAvg / 10000.0) * ((5000.0 / 4095.0) * (((float)pulseWidthSerial / 100.0) * (float)multiplierPid)));//(float) analogInputs[3])); // 0-50% duty cycle
+		}
+	}
+
+	void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
+
+		uartDataReceive(); 	
+				
+		__HAL_UART_CLEAR_OREFLAG(huart);
+		huart->ErrorCode |= HAL_UART_ERROR_ORE;
+				
+		HAL_UART_Receive_IT(&huart5, Rx_data, 15);
+		//HAL_UART_Receive_IT(&huart5, Rx_data, 15); 
+		//dataCommand = 1;
+	}
+
+	void uartDataReceive(){
+		int start = 0;
+		for(int i = 0; i <= 15; i++){
+			if ((Rx_data[i] == 0x80) || (Rx_data[i] == 0x70)){
+				start = i;
 			}
 		}
+		// if the uart command was a register write action
+		if(Rx_data[start] == 0x80){
+			switch(Rx_data[(start + 1)]){
+				case 0x01: // enable bus control
+					analogValueMode = Rx_data[(start + 5)]; // 0=analog 1=busvalue
+					data1[start]= 0x80;
+					data1[1]= 0x01;
+					data1[2]=0x00;
+					data1[3]=0x00;
+					data1[4]=0x00;
+					data1[5]=(analogValueMode);
+					data1[6]=0x11;
+					data1[7]=0x12;
+					HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
+					break;
+					
+				case 0x02: // enable motor
+					enablePulseSerial = Rx_data[(start + 5)];
+					data1[0]= 0x80;
+					data1[1]= 0x02;
+					data1[2]=0x00;
+					data1[3]=0x00;
+					data1[4]=0x00;
+					data1[5]=(enablePulseSerial);
+					data1[6]=0x11;
+					data1[7]=0x12;
+					HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
+					break;
+			
+					
+				case 0x03: // enable pid
+					pidEnabledSerial = Rx_data[(start + 5)]; // 0= disabled 1=standard coded pid values 2=bus controlled pid values
+					data1[0]= 0x80;
+					data1[1]= 0x03;
+					data1[2]=0x00;
+					data1[3]=0x00;
+					data1[4]=0x00;
+					data1[5]=(pidEnabledSerial);
+					data1[6]=0x11;
+					data1[7]=0x12;
+					HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
+					break;
+	
+				case 0x05: // set rpm
+					rpmPulseSerial = (Rx_data[(start + 2)] << 24) | (Rx_data[(start + 3)] << 16) | (Rx_data[(start + 4)] << 8) | (Rx_data[(start + 5)]);
+					data1[0]= 0x80;
+					data1[1]= 0x05;
+					data1[2]=(rpmPulseSerial >> 24);
+					data1[3]=(rpmPulseSerial >> 16);
+					data1[4]=(rpmPulseSerial >> 8);
+					data1[5]=(rpmPulseSerial);
+					data1[6]=0x11;
+					data1[7]=0x12;
+					HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
+					break;
+				
+				case 0x06: // set mode width pulse
+					modeWidthPulseSerial = Rx_data[(start + 5)];
+					data1[0]= 0x80;
+					data1[1]= 0x06;
+					data1[2]=0x00;
+					data1[3]=0x00;
+					data1[4]=0x00;
+					data1[5]=(modeWidthPulseSerial);
+					data1[6]=0x11;
+					data1[7]=0x12;
+					HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
+					break;
+				
+				case 0x07: // set mode delay pulse
+					modeDelayPulseSerial = Rx_data[(start + 5)];
+					data1[0]= 0x80;
+					data1[1]= 0x07;
+					data1[2]=0x00;
+					data1[3]=0x00;
+					data1[4]=0x00;
+					data1[5]=(modeDelayPulseSerial);
+					data1[6]=0x11;
+					data1[7]=0x12;
+					HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
+					break;
+			
+				case 0x40: // set pulse width
+					pulseWidthSerial = (Rx_data[(start + 2)] << 24) | (Rx_data[(start + 3)] << 16) | (Rx_data[(start + 4)] << 8) | (Rx_data[(start + 5)]);
+					data1[0]= 0x80;
+					data1[1]= 0x40;
+					data1[2]=(pulseWidthSerial >> 24);
+					data1[3]=(pulseWidthSerial >> 16);
+					data1[4]=(pulseWidthSerial >> 8);
+					data1[5]=(pulseWidthSerial);
+					data1[6]=0x11;
+					data1[7]=0x12;
+					HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
+					break;
+					
+				case 0x50: // set delay pulse
+					delayPulseSerial = (Rx_data[(start + 2)] << 24) | (Rx_data[(start + 3)] << 16) | (Rx_data[(start + 4)] << 8) | (Rx_data[(start + 5)]);
+					data1[0]= 0x80;
+					data1[1]= 0x50;
+					data1[2]=(delayPulseSerial >> 24);
+					data1[3]=(delayPulseSerial >> 16);
+					data1[4]=(delayPulseSerial >> 8);
+					data1[5]=(delayPulseSerial);
+					data1[6]=0x11;
+					data1[7]=0x12;
+					HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
+					break;
 
-		void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) 
-		{
-			
-			
-
-			uartDataReceive(); 	
-				
-	__HAL_UART_CLEAR_OREFLAG(huart);
-	huart->ErrorCode |= HAL_UART_ERROR_ORE;
-				
-				HAL_UART_Receive_IT(&huart5, Rx_data, 15);
-			
-					
-			
-			//HAL_UART_Receive_IT(&huart5, Rx_data, 15); 
-			//dataCommand = 1;
-		}
-
-		void uartDataReceive(){
-			int start = 0;
-			for(int i = 0; i <= 15; i++){
-				if ((Rx_data[i] == 0x80) || (Rx_data[i] == 0x70)){
-					start = i;
-				}
-			}
-			// if the uart command was a register write action
-			if(Rx_data[start] == 0x80){
-				switch(Rx_data[(start + 1)]){
-					case 0x01: // enable bus control
-						analogValueMode = Rx_data[(start + 5)]; // 0=analog 1=busvalue
-						data1[start]= 0x80;
-						data1[1]= 0x01;
-						data1[2]=0x00;
-						data1[3]=0x00;
-						data1[4]=0x00;
-						data1[5]=(analogValueMode);
-					data1[6]=0x11;
-					data1[7]=0x12;
-						HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
-						break;
-					
-					case 0x02: // enable motor
-						enablePulseSerial = Rx_data[(start + 5)];
-						data1[0]= 0x80;
-						data1[1]= 0x02;
-						data1[2]=0x00;
-						data1[3]=0x00;
-						data1[4]=0x00;
-						data1[5]=(enablePulseSerial);
-					data1[6]=0x11;
-					data1[7]=0x12;
-						HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
-						break;
-			
-					
-					case 0x03: // enable pid
-						pidEnabledSerial = Rx_data[(start + 5)]; // 0= disabled 1=standard coded pid values 2=bus controlled pid values
-						data1[0]= 0x80;
-						data1[1]= 0x03;
-						data1[2]=0x00;
-						data1[3]=0x00;
-						data1[4]=0x00;
-						data1[5]=(pidEnabledSerial);
-					data1[6]=0x11;
-					data1[7]=0x12;
-						HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
-						break;
-					case 0x05: // set rpm
-						rpmPulseSerial = (Rx_data[(start + 2)] << 24) | (Rx_data[(start + 3)] << 16) | (Rx_data[(start + 4)] << 8) | (Rx_data[(start + 5)]);
-						data1[0]= 0x80;
-						data1[1]= 0x05;
-						data1[2]=(rpmPulseSerial >> 24);
-						data1[3]=(rpmPulseSerial >> 16);
-						data1[4]=(rpmPulseSerial >> 8);
-						data1[5]=(rpmPulseSerial);
-					data1[6]=0x11;
-					data1[7]=0x12;
-						HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
-						break;
-				
-					case 0x06: // set mode width pulse
-						modeWidthPulseSerial = Rx_data[(start + 5)];
-						data1[0]= 0x80;
-						data1[1]= 0x06;
-						data1[2]=0x00;
-						data1[3]=0x00;
-						data1[4]=0x00;
-						data1[5]=(modeWidthPulseSerial);
-					data1[6]=0x11;
-					data1[7]=0x12;
-						HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
-						break;
-				
-					case 0x07: // set mode delay pulse
-						modeDelayPulseSerial = Rx_data[(start + 5)];
-						data1[0]= 0x80;
-						data1[1]= 0x07;
-						data1[2]=0x00;
-						data1[3]=0x00;
-						data1[4]=0x00;
-						data1[5]=(modeDelayPulseSerial);
-					data1[6]=0x11;
-					data1[7]=0x12;
-						HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
-						break;
-			
-					case 0x40: // set pulse width
-						pulseWidthSerial = (Rx_data[(start + 2)] << 24) | (Rx_data[(start + 3)] << 16) | (Rx_data[(start + 4)] << 8) | (Rx_data[(start + 5)]);
-						data1[0]= 0x80;
-						data1[1]= 0x40;
-						data1[2]=(pulseWidthSerial >> 24);
-						data1[3]=(pulseWidthSerial >> 16);
-						data1[4]=(pulseWidthSerial >> 8);
-						data1[5]=(pulseWidthSerial);
-					data1[6]=0x11;
-					data1[7]=0x12;
-						HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
-						break;
-					
-					case 0x50: // set delay pulse
-						delayPulseSerial = (Rx_data[(start + 2)] << 24) | (Rx_data[(start + 3)] << 16) | (Rx_data[(start + 4)] << 8) | (Rx_data[(start + 5)]);
-						data1[0]= 0x80;
-						data1[1]= 0x50;
-						data1[2]=(delayPulseSerial >> 24);
-						data1[3]=(delayPulseSerial >> 16);
-						data1[4]=(delayPulseSerial >> 8);
-						data1[5]=(delayPulseSerial);
-					data1[6]=0x11;
-					data1[7]=0x12;
-						HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
-						break;
-					case 0x60: // set pid proportional
-						pidProportionalSerial = (Rx_data[(start + 2)] << 24) | (Rx_data[(start + 3)] << 16) | (Rx_data[(start + 4)] << 8) | (Rx_data[(start + 5)]);
-						pidSetProportionalSerial = (double)pidProportionalSerial / 10000.0;
+				case 0x60: // set pid proportional
+					pidProportionalSerial = (Rx_data[(start + 2)] << 24) | (Rx_data[(start + 3)] << 16) | (Rx_data[(start + 4)] << 8) | (Rx_data[(start + 5)]);
+					pidSetProportionalSerial = (double)pidProportionalSerial / 10000.0;
 					pidProportionalSerial = pidSetProportionalSerial * 10000;
-						data1[0]= 0x80;
-						data1[1]= 0x60;
-						data1[2]=(pidProportionalSerial >> 24);
-						data1[3]=(pidProportionalSerial >> 16);
-						data1[4]=(pidProportionalSerial >> 8);
-						data1[5]=(pidProportionalSerial);
+					data1[0]= 0x80;
+					data1[1]= 0x60;
+					data1[2]=(pidProportionalSerial >> 24);
+					data1[3]=(pidProportionalSerial >> 16);
+					data1[4]=(pidProportionalSerial >> 8);
+					data1[5]=(pidProportionalSerial);
 					data1[6]=0x11;
 					data1[7]=0x12;
-						HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
-						break;
+					HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
+					break;
 					
-					case 0x61: // set pid integral
-						pidIntegralSerial = (Rx_data[(start + 2)] << 24) | (Rx_data[(start + 3)] << 16) | (Rx_data[(start + 4)] << 8) | (Rx_data[(start + 5)]);
-						pidSetIntegralSerial = (double)pidIntegralSerial / 10000.0;
+				case 0x61: // set pid integral
+					pidIntegralSerial = (Rx_data[(start + 2)] << 24) | (Rx_data[(start + 3)] << 16) | (Rx_data[(start + 4)] << 8) | (Rx_data[(start + 5)]);
+					pidSetIntegralSerial = (double)pidIntegralSerial / 10000.0;
 					pidIntegralSerial = pidSetIntegralSerial * 10000;
-						data1[0]= 0x80;
-						data1[1]= 0x61;
-						data1[2]=(pidIntegralSerial >> 24);
-						data1[3]=(pidIntegralSerial >> 16);
-						data1[4]=(pidIntegralSerial >> 8);
-						data1[5]=(pidIntegralSerial);
+					data1[0]= 0x80;
+					data1[1]= 0x61;
+					data1[2]=(pidIntegralSerial >> 24);
+					data1[3]=(pidIntegralSerial >> 16);
+					data1[4]=(pidIntegralSerial >> 8);
+					data1[5]=(pidIntegralSerial);
 					data1[6]=0x11;
 					data1[7]=0x12;
-						HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
-						break;
+					HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
+					break;
 					
-					case 0x62: // set pid derevitive
-						pidDerevitiveSerial = (Rx_data[(start + 2)] << 24) | (Rx_data[(start + 3)] << 16) | (Rx_data[(start + 4)] << 8) | (Rx_data[(start + 5)]);
-						pidSetDerevitiveSerial = (double)pidDerevitiveSerial / 10000.0;
+				case 0x62: // set pid derevitive
+					pidDerevitiveSerial = (Rx_data[(start + 2)] << 24) | (Rx_data[(start + 3)] << 16) | (Rx_data[(start + 4)] << 8) | (Rx_data[(start + 5)]);
+					pidSetDerevitiveSerial = (double)pidDerevitiveSerial / 10000.0;
 					pidDerevitiveSerial = pidSetDerevitiveSerial * 10000;
-						data1[0]= 0x80;
-						data1[1]= 0x62;
-						data1[2]=(pidDerevitiveSerial >> 24);
-						data1[3]=(pidDerevitiveSerial >> 16);
-						data1[4]=(pidDerevitiveSerial >> 8);
-						data1[5]=(pidDerevitiveSerial);
-					data1[6]=0x11;
-					data1[7]=0x12;
-						HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
-						break;
-					
-					case 0x63: // set pid min tune
-						minTunePidSerial = (Rx_data[(start + 2)] << 24) | (Rx_data[(start + 3)] << 16) | (Rx_data[(start + 4)] << 8) | (Rx_data[(start + 5)]);
-						data1[0]= 0x80;
-						data1[1]= 0x63;
-						data1[2]=(minTunePidSerial >> 24);
-						data1[3]=(minTunePidSerial >> 16);
-						data1[4]=(minTunePidSerial >> 8);
-						data1[5]=(minTunePidSerial);
-					data1[6]=0x11;
-					data1[7]=0x12;
-						HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
-						break;
-					
-					case 0x64: // set pid max tune
-						maxTunePidSerial = (Rx_data[(start + 2)] << 24) | (Rx_data[(start + 3)] << 16) | (Rx_data[(start + 4)] << 8) | (Rx_data[(start + 5)]);
-						data1[0]= 0x80;
-						data1[1]= 0x64;
-						data1[2]=(maxTunePidSerial >> 24);
-						data1[3]=(maxTunePidSerial >> 16);
-						data1[4]=(maxTunePidSerial >> 8);
-						data1[5]=(maxTunePidSerial);
-					data1[6]=0x11;
-					data1[7]=0x12;
-						HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
-						break;
-				}
-			}
-			
-			else if(Rx_data[start] == 0x70){ // read action on the bus
-				switch(Rx_data[(start + 1)]){
-					case 0x01: // enable bus control
-						data1[0]= 0x70;
-						data1[1]= 0x01;
-						data1[2]=0x00;
-						data1[3]=0x00;
-						data1[4]=0x00;
-						data1[5]=(analogValueMode);
-					data1[6]=0x11;
-					data1[7]=0x12;
-						HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
-						break;
-					
-					case 0x02: // enable motor
-						data1[0]= 0x70;
-						data1[1]= 0x02;
-						data1[2]=0x00;
-						data1[3]=0x00;
-						data1[4]=0x00;
-						data1[5]=(enablePulseSerial);
-					data1[6]=0x11;
-					data1[7]=0x12;
-						HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
-						break;
-			
-					case 0x03: // enable pid
-						//pidEnabledSerial = Rx_data[2]; // 0= disabled 1=standard coded pid values 2=bus controlled pid values
-						data1[0]= 0x70;
-						data1[1]= 0x03;
-						data1[2]=0x00;
-						data1[3]=0x00;
-						data1[4]=0x00;
-						data1[5]=(pidEnabledSerial);
-					data1[6]=0x11;
-					data1[7]=0x12;
-						HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
-						break;
-					case 0x05: // set rpm
-						data1[0]= 0x70;
-						data1[1]= 0x05;
-						data1[2]=(rpmPulseSerial >> 24);
-						data1[3]=(rpmPulseSerial >> 16);
-						data1[4]=(rpmPulseSerial >> 8);
-						data1[5]=(rpmPulseSerial);
-					data1[6]=0x11;
-					data1[7]=0x12;
-						HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
-						break;
-				
-					case 0x06: // set mode width pulse
-						data1[0]= 0x70;
-						data1[1]= 0x06;
-						data1[2]=0x00;
-						data1[3]=0x00;
-						data1[4]=0x00;
-						data1[5]=(modeWidthPulseSerial);
-					data1[6]=0x11;
-					data1[7]=0x12;
-						HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
-						break;
-				
-					case 0x07: // set mode delay pulse
-						data1[0]= 0x70;
-						data1[1]= 0x07;
-						data1[2]=0x00;
-						data1[3]=0x00;
-						data1[4]=0x00;
-						data1[5]=(modeDelayPulseSerial);
-					data1[6]=0x11;
-					data1[7]=0x12;
-						HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
-						break;
-					
-					case 0x10: // voltage
-						
-					//Send motor data over uart
-					// battery voltage
-					data1[0]= 0x70;
-					data1[1]= 0x10;
-					data1[2]=(voltageBattery >> 24);
-					data1[3]=(voltageBattery >> 16);
-					data1[4]=(voltageBattery >> 8);
-					data1[5]=(voltageBattery);
+					data1[0]= 0x80;
+					data1[1]= 0x62;
+					data1[2]=(pidDerevitiveSerial >> 24);
+					data1[3]=(pidDerevitiveSerial >> 16);
+					data1[4]=(pidDerevitiveSerial >> 8);
+					data1[5]=(pidDerevitiveSerial);
 					data1[6]=0x11;
 					data1[7]=0x12;
 					HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
 					break;
 					
-					case 0x20: // current
-						
-					//Send motor data over uart
-					// battery current
-					data1[0]= 0x70;
-					data1[1]= 0x20;
-					data1[2]=(currentBattery >> 24);
-					data1[3]=(currentBattery >> 16);
-					data1[4]=(currentBattery >> 8);
-					data1[5]=(currentBattery);
+				case 0x63: // set pid min tune
+					minTunePidSerial = (Rx_data[(start + 2)] << 24) | (Rx_data[(start + 3)] << 16) | (Rx_data[(start + 4)] << 8) | (Rx_data[(start + 5)]);
+					data1[0]= 0x80;
+					data1[1]= 0x63;
+					data1[2]=(minTunePidSerial >> 24);
+					data1[3]=(minTunePidSerial >> 16);
+					data1[4]=(minTunePidSerial >> 8);
+					data1[5]=(minTunePidSerial);
 					data1[6]=0x11;
 					data1[7]=0x12;
 					HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
 					break;
 					
-					case 0x30: // motor rpm
-						
-					//Send motor data over uart
-					// motor rpm
-					data1[0]= 0x70;
-					data1[1]= 0x30;
-					data1[2]=(rpmPulse >> 24);
-					data1[3]=(rpmPulse >> 16);
-					data1[4]=(rpmPulse >> 8);
-					data1[5]=(rpmPulse);
+				case 0x64: // set pid max tune
+					maxTunePidSerial = (Rx_data[(start + 2)] << 24) | (Rx_data[(start + 3)] << 16) | (Rx_data[(start + 4)] << 8) | (Rx_data[(start + 5)]);
+					data1[0]= 0x80;
+					data1[1]= 0x64;
+					data1[2]=(maxTunePidSerial >> 24);
+					data1[3]=(maxTunePidSerial >> 16);
+					data1[4]=(maxTunePidSerial >> 8);
+					data1[5]=(maxTunePidSerial);
 					data1[6]=0x11;
 					data1[7]=0x12;
 					HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
 					break;
-					
-			
-					case 0x40: // set pulse width
-						data1[0]= 0x70;
-						data1[1]= 0x40;
-						data1[2]=(pulseWidthSerial >> 24);
-						data1[3]=(pulseWidthSerial >> 16);
-						data1[4]=(pulseWidthSerial >> 8);
-						data1[5]=(pulseWidthSerial);
-					data1[6]=0x11;
-					data1[7]=0x12;
-						HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
-						break;
-					
-					case 0x50: // set delay pulse
-						delayPulseSerial = (Rx_data[2] << 24) | (Rx_data[3] << 16) | (Rx_data[4] << 8) | (Rx_data[5]);
-						data1[0]= 0x80;
-						data1[1]= 0x50;
-						data1[2]=(delayPulseSerial >> 24);
-						data1[3]=(delayPulseSerial >> 16);
-						data1[4]=(delayPulseSerial >> 8);
-						data1[5]=(delayPulseSerial);
-					data1[6]=0x11;
-					data1[7]=0x12;
-						HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
-						break;
-					
-					case 0x60: // set pid proportional
-						data1[0]= 0x80;
-						data1[1]= 0x60;
-						data1[2]=((pidProportionalSerial * 10000) >> 24);
-						data1[3]=((pidProportionalSerial * 10000) >> 16);
-						data1[4]=((pidProportionalSerial * 10000) >> 8);
-						data1[5]=((pidProportionalSerial * 10000));
-					data1[6]=0x11;
-					data1[7]=0x12;
-						HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
-						break;
-					
-					case 0x61: // set pid integral
-						data1[0]= 0x70;
-						data1[1]= 0x61;
-						data1[2]=((pidIntegralSerial * 10000) >> 24);
-						data1[3]=((pidIntegralSerial * 10000) >> 16);
-						data1[4]=((pidIntegralSerial * 10000) >> 8);
-						data1[5]=((pidIntegralSerial * 10000));
-					data1[6]=0x11;
-					data1[7]=0x12;
-						HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
-						break;
-					
-					case 0x62: // set pid derevitive
-						data1[0]= 0x80;
-						data1[1]= 0x62;
-						data1[2]=((pidDerevitiveSerial * 10000) >> 24);
-						data1[3]=((pidDerevitiveSerial * 10000) >> 16);
-						data1[4]=((pidDerevitiveSerial * 10000) >> 8);
-						data1[5]=((pidDerevitiveSerial * 10000));
-					data1[6]=0x11;
-					data1[7]=0x12;
-						HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
-						break;
-					
-					case 0x63: // set pid min tune
-						data1[0]= 0x80;
-						data1[1]= 0x63;
-						data1[2]=(minTunePidSerial >> 24);
-						data1[3]=(minTunePidSerial >> 16);
-						data1[4]=(minTunePidSerial >> 8);
-						data1[5]=(minTunePidSerial);
-					data1[6]=0x11;
-					data1[7]=0x12;
-						HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
-						break;
-					
-					case 0x64: // set pid max tune
-						data1[0]= 0x80;
-						data1[1]= 0x64;
-						data1[2]=(maxTunePidSerial >> 24);
-						data1[3]=(maxTunePidSerial >> 16);
-						data1[4]=(maxTunePidSerial >> 8);
-						data1[5]=(maxTunePidSerial);
-					data1[6]=0x11;
-					data1[7]=0x12;
-						HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
-						break;
-				}
 			}
-				
-			// set all databits to 0
-			for(int i = 0; i <= 15; i++){
-					Rx_data[i] = 0x00;
-			}
-			
-			// reset the data command flag
-			dataCommand = 0;
 		}
-
-		void uartDataTransmit(){
-			// select a bit of data
-			switch(dataCounter){
-				case 0:
-					//Send motor data over uart
-					// battery voltage
+		else if(Rx_data[start] == 0x70){ // read action on the bus
+			switch(Rx_data[(start + 1)]){
+				case 0x01: // enable bus control
+					data1[0]= 0x70;
+					data1[1]= 0x01;
+					data1[2]=0x00;
+					data1[3]=0x00;
+					data1[4]=0x00;
+					data1[5]=(analogValueMode);
+					data1[6]=0x11;
+					data1[7]=0x12;
+					HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
+					break;
+					
+				case 0x02: // enable motor
+					data1[0]= 0x70;
+					data1[1]= 0x02;
+					data1[2]=0x00;
+					data1[3]=0x00;
+					data1[4]=0x00;
+					data1[5]=(enablePulseSerial);
+					data1[6]=0x11;
+					data1[7]=0x12;
+					HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
+					break;
+			
+				case 0x03: // enable pid
+					//pidEnabledSerial = Rx_data[2]; // 0= disabled 1=standard coded pid values 2=bus controlled pid values
+					data1[0]= 0x70;
+					data1[1]= 0x03;
+					data1[2]=0x00;
+					data1[3]=0x00;
+					data1[4]=0x00;
+					data1[5]=(pidEnabledSerial);
+					data1[6]=0x11;
+					data1[7]=0x12;
+					HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
+					break;
+		
+				case 0x05: // set rpm
+					data1[0]= 0x70;
+					data1[1]= 0x05;
+					data1[2]=(rpmPulseSerial >> 24);
+					data1[3]=(rpmPulseSerial >> 16);
+					data1[4]=(rpmPulseSerial >> 8);
+					data1[5]=(rpmPulseSerial);
+					data1[6]=0x11;
+					data1[7]=0x12;
+					HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
+					break;
+				
+				case 0x06: // set mode width pulse
+					data1[0]= 0x70;
+					data1[1]= 0x06;
+					data1[2]=0x00;
+					data1[3]=0x00;
+					data1[4]=0x00;
+					data1[5]=(modeWidthPulseSerial);
+					data1[6]=0x11;
+					data1[7]=0x12;
+					HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
+					break;
+				
+				case 0x07: // set mode delay pulse
+					data1[0]= 0x70;
+					data1[1]= 0x07;
+					data1[2]=0x00;
+					data1[3]=0x00;
+					data1[4]=0x00;
+					data1[5]=(modeDelayPulseSerial);
+					data1[6]=0x11;
+					data1[7]=0x12;
+					HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
+					break;
+					
+				case 0x10: // voltage
 					data1[0]= 0x70;
 					data1[1]= 0x10;
 					data1[2]=(voltageBattery >> 24);
@@ -1241,9 +1067,8 @@
 					data1[7]=0x12;
 					HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
 					break;
-				case 1:
-					//Send motor data over uart
-					// battery current
+					
+				case 0x20: // current
 					data1[0]= 0x70;
 					data1[1]= 0x20;
 					data1[2]=(currentBattery >> 24);
@@ -1254,9 +1079,8 @@
 					data1[7]=0x12;
 					HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
 					break;
-				case 2:
-					//Send motor data over uart
-					// motor rpm
+					
+				case 0x30: // motor rpm
 					data1[0]= 0x70;
 					data1[1]= 0x30;
 					data1[2]=(rpmPulse >> 24);
@@ -1267,51 +1091,111 @@
 					data1[7]=0x12;
 					HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
 					break;
-				case 3:
-					//Send motor data over uart
-					// calculated pulse width
+					
+			
+				case 0x40: // set pulse width
 					data1[0]= 0x70;
 					data1[1]= 0x40;
-					data1[2]=(widthPulse >> 24);
-					data1[3]=(widthPulse >> 16);
-					data1[4]=(widthPulse >> 8);
-					data1[5]=(widthPulse);
+					data1[2]=(pulseWidthSerial >> 24);
+					data1[3]=(pulseWidthSerial >> 16);
+					data1[4]=(pulseWidthSerial >> 8);
+					data1[5]=(pulseWidthSerial);
 					data1[6]=0x11;
 					data1[7]=0x12;
 					HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
 					break;
-				case 4:
-					//Send motor data over uart
-					// calculate pulse delay
-					data1[0]= 0x70;
+					
+				case 0x50: // set delay pulse
+					delayPulseSerial = (Rx_data[2] << 24) | (Rx_data[3] << 16) | (Rx_data[4] << 8) | (Rx_data[5]);
+					data1[0]= 0x80;
 					data1[1]= 0x50;
-					data1[2]=(delayPulse >> 24);
-					data1[3]=(delayPulse >> 16);
-					data1[4]=(delayPulse >> 8);
-					data1[5]=(delayPulse);
+					data1[2]=(delayPulseSerial >> 24);
+					data1[3]=(delayPulseSerial >> 16);
+					data1[4]=(delayPulseSerial >> 8);
+					data1[5]=(delayPulseSerial);
+					data1[6]=0x11;
+					data1[7]=0x12;
+					HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
+					break;
+					
+				case 0x60: // set pid proportional
+					data1[0]= 0x80;
+					data1[1]= 0x60;
+					data1[2]=((pidProportionalSerial * 10000) >> 24);
+					data1[3]=((pidProportionalSerial * 10000) >> 16);
+					data1[4]=((pidProportionalSerial * 10000) >> 8);
+					data1[5]=((pidProportionalSerial * 10000));
+					data1[6]=0x11;
+					data1[7]=0x12;
+					HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
+					break;
+					
+				case 0x61: // set pid integral
+					data1[0]= 0x70;
+					data1[1]= 0x61;
+					data1[2]=((pidIntegralSerial * 10000) >> 24);
+					data1[3]=((pidIntegralSerial * 10000) >> 16);
+					data1[4]=((pidIntegralSerial * 10000) >> 8);
+					data1[5]=((pidIntegralSerial * 10000));
+					data1[6]=0x11;
+					data1[7]=0x12;
+					HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
+					break;
+					
+				case 0x62: // set pid derevitive
+					data1[0]= 0x80;
+					data1[1]= 0x62;
+					data1[2]=((pidDerevitiveSerial * 10000) >> 24);
+					data1[3]=((pidDerevitiveSerial * 10000) >> 16);
+					data1[4]=((pidDerevitiveSerial * 10000) >> 8);
+					data1[5]=((pidDerevitiveSerial * 10000));
+					data1[6]=0x11;
+					data1[7]=0x12;
+					HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
+					break;
+					
+				case 0x63: // set pid min tune
+					data1[0]= 0x80;
+					data1[1]= 0x63;
+					data1[2]=(minTunePidSerial >> 24);
+					data1[3]=(minTunePidSerial >> 16);
+					data1[4]=(minTunePidSerial >> 8);
+					data1[5]=(minTunePidSerial);
+					data1[6]=0x11;
+					data1[7]=0x12;
+					HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
+					break;
+					
+				case 0x64: // set pid max tune
+					data1[0]= 0x80;
+					data1[1]= 0x64;
+					data1[2]=(maxTunePidSerial >> 24);
+					data1[3]=(maxTunePidSerial >> 16);
+					data1[4]=(maxTunePidSerial >> 8);
+					data1[5]=(maxTunePidSerial);
 					data1[6]=0x11;
 					data1[7]=0x12;
 					HAL_UART_Transmit(&huart5,data1,sizeof(data1),10);
 					break;
 			}
-				
-			// increase data counter
-			dataCounter++;
-				
-			// handle counter overflow
-			if(dataCounter >= 5){
-				dataCounter = 0;
-			} 
 		}
-
-		
-
-		void runPID(){ 
+				
+		// set all databits to 0
+		for(int i = 0; i <= 15; i++){
+			Rx_data[i] = 0x00;
+		}
 			
+		// reset the data command flag
+			dataCommand = 0;
+	}
+
+	void runPID(){ 
+	
 			//if((rpmPulse < (rpmSetPulse + bandwidthPid)) && (rpmPulse > (rpmSetPulse - bandwidthPid))){
 			//	cumError = 0;
 			//}
-			if(pidEnabledSerial == 0x01){
+	
+		if(pidEnabledSerial == 0x01){
 			error = (float)rpmPulseSerial - (float)rpmPulse; // determine error
 			cumError += error; // compute integral
 			rateError = (error - lastError);
@@ -1325,8 +1209,8 @@
 				multiplierPid = minTunePidSerial;
 			}
 				
-			}
-			else{
+		}
+		else{
 			error = (float)rpmSetPulse - (float)rpmPulse; // determine error
 			cumError += error; // compute integral
 			rateError = (error - lastError);
@@ -1340,10 +1224,10 @@
 				multiplierPid = PID_MIN;
 			}
 		}
-		}
+	}
 		
 	void handleMotorRunstate(){
-		if((!(GPIOB->IDR &(1<<4)) || ((analogValueMode == 0x01) && (enablePulseSerial == 0x01))) && (motorRunState == 0)){
+		if((((!(GPIOB->IDR &(1<<4))) && (analogValueMode == 0x00)) || ((analogValueMode == 0x01) && (enablePulseSerial == 0x01))) && (motorRunState == 0)){
 			error = 0;
 			cumError = 0;
 			rateError = 0;
@@ -1371,26 +1255,10 @@
 		}
 		else if(((analogValueMode == 0x00) && (!(GPIOB->IDR &(1<<4))) || ((analogValueMode == 0x01) && (enablePulseSerial == 0x01))) && (motorRunState == 2)){
 			// check if motor is still running
-			if(TIM1->CNT > 65400){
+			if(TIM2->CNT > 2000000){
 				motorRunState = 0;
 				comparePulse[0] = 0;
 			}
-			
-			//for(int i = (MAX_COMPARE_PULSE - 1); i >= 0; i--){
-			//	comparePulse[i] = comparePulse[(i-1)];
-			//}
-				
-			//comparePulseAvg = 0;
-					
-			//for(int i = 0; i < (MAX_COMPARE_PULSE); i++){
-			//	comparePulseAvg += comparePulse[i];
-			//}
-					
-			//comparePulseAvg = (float)comparePulseAvg / (float)MAX_COMPARE_PULSE;
-					
-			//if(comparePulseAvg > 0){
-			//	rpmPulse = (((1000000.0 / (float)comparePulse[0]) * 60.0) / (float)MAGNETS_ON_ROTOR);
-			//}
 		}
 		else{
 			motorRunState = 0;
